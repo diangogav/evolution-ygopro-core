@@ -1740,7 +1740,11 @@ int32_t field::get_release_list(lua_State* L, uint8_t playerid, card_set* releas
 			    && (reason != REASON_EFFECT || pcard->is_releasable_by_effect(playerid, re))
 			    && (!use_con || pduel->lua->check_filter(L, pcard, fun, exarg))) {
 			pcard->release_param = 1;
-			if(pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE)) {
+			if(pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE_OPT)) {
+				if(release_list)
+					release_list->insert(pcard);
+				++rcount;
+			} else if(pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE)) {
 				if(ex_list)
 					ex_list->insert(pcard);
 				++rcount;
@@ -1814,7 +1818,8 @@ int32_t field::get_summon_release_list(card* target, card_set* release_list, car
 			pcard->release_param = 2;
 		else
 			pcard->release_param = 1;
-		if(ex || ex_tribute.find(pcard) != ex_tribute.end()) {
+		if(ex || ex_tribute.find(pcard) != ex_tribute.end()
+		        || pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE_OPT)) {
 			if(release_list)
 				release_list->insert(pcard);
 			rcount += pcard->release_param;
@@ -1885,7 +1890,9 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
 	}
 	for(auto& pcard : player[1 - playerid].list_mzone) {
 		if(pcard && pcard->is_affect_by_effect(peffect)
-		        && pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE) && pcard->is_position(POS_FACEUP)
+		        && (pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE)
+		            || pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE_OPT))
+		        && pcard->is_position(POS_FACEUP)
 		        && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT) && pcard->is_releasable_by_effect(playerid, peffect)
 				&& (no_level || pcard->get_level() > 0 || pcard->is_affected_by_effect(EFFECT_RITUAL_LEVEL_EX)))
 			material->insert(pcard);
