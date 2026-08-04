@@ -427,6 +427,11 @@ const std::map<uint64_t, uint64_t> category_checklist{
 //#define EFFECT_TRIPLE_TRIBUTE			156
 #define EFFECT_ADD_EXTRA_TRIBUTE		157
 #define EFFECT_EXTRA_RELEASE_NONSUM		158
+// Fork extension (Edison/pre-errata): the affected opponent card joins the
+// normal release pool — optional, multiple allowed, valid for tribute summon,
+// non-summon release and ritual material. Number kept far outside the
+// upstream range to avoid collisions on rebase.
+#define EFFECT_EXTRA_RELEASE_OPT		10159
 #define EFFECT_PUBLIC					160
 #define EFFECT_COUNTER_PERMIT			0x10000
 #define EFFECT_COUNTER_LIMIT			0x20000
