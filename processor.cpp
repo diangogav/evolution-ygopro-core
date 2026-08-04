@@ -3406,7 +3406,13 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, ui
 				reason_card = core.attack_target;
 				bd[0] = TRUE;
 			} else {
-				if(attacker_value != 0) {
+				// Equal ATK, both in Attack Position -> mutual destruction.
+				// Modern rule guards this with attacker_value != 0, so two
+				// 0-ATK attackers destroy NEITHER. Edison/pre-errata
+				// (duel_rule <= 1, rule #13) destroys BOTH even at 0 ATK.
+				// This branch is Attack-vs-Attack only; the 0-ATK-vs-0-DEF
+				// sub-rule lives in the else branch below and is untouched.
+				if(attacker_value != 0 || core.duel_rule <= 1) {
 					bd[0] = TRUE;
 					bd[1] = TRUE;
 				}
