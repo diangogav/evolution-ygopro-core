@@ -1,0 +1,81 @@
+name: Edison fork — upstream watch
+
+# Weekly: detect movement in purerosefallen/ygopro-core. If it moved, rebase the
+# edison feature commits onto the new upstream tip and open a PR (clean) or an
+# issue (conflicts). Flags ABI-sensitive changes (ocgapi / headers) that may
+# require a koishipro-core.js bump — see EDISON-FORK.md.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout edison (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: edison
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "edison-upstream-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/purerosefallen/ygopro-core.git || true
+          git fetch --quiet upstream master
+
+      - name: Detect upstream movement
+        id: check
+        run: |
+          base="$(git merge-base edison upstream/master)"
+          upstream="$(git rev-parse upstream/master)"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ "$base" = "$upstream" ]; then
+            echo "moved=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream unchanged ($upstream) — nothing to do."
+          else
+            echo "moved=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream moved: base $base -> $upstream"
+          fi
+
+      - name: Rebase and open PR / issue
+        if: steps.check.outputs.moved == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # shellcheck disable=SC2016  # printf formats are single-quoted on purpose (literal %s/backticks)
+          set -euo pipefail
+          base="${{ steps.check.outputs.base }}"
+          short="$(git rev-parse --short upstream/master)"
+          commits="$(git log --oneline "$base"..upstream/master)"
+
+          # ABI sensitivity: does the upstream delta touch the C API or headers?
+          abi="$(git diff --name-only "$base" upstream/master | grep -E 'ocgapi\.(cpp|h)$|\.h$' || true)"
+          note=""
+          if [ -n "$abi" ]; then
+            note="$(printf '\n\n**ABI-sensitive** — upstream changed these files, which may require bumping koishipro-core.js (see EDISON-FORK.md):\n```\n%s\n```' "$abi")"
+          fi
+
+          git branch -D upstream-sync 2>/dev/null || true
+          git checkout -b upstream-sync
+
+          if git rebase upstream/master; then
+            git push -f origin upstream-sync
+            body="$(printf 'Automated upstream sync — rebased the edison feature commits onto upstream/master.\n\nNew upstream commits:\n```\n%s\n```\n\nAfter merge: run tools/build-edison.sh, update EXPECTED_EDISON_CORE_SHA256 and publish a new release, then run the dual-core regression suite in EDOpro-server-ts.%s' "$commits" "$note")"
+            gh pr create --base edison --head upstream-sync --title "Sync edison onto upstream ($short)" --body "$body" || echo "PR from upstream-sync already exists — branch updated."
+          else
+            git rebase --abort
+            body="$(printf 'Automated upstream sync could not rebase cleanly — resolve manually.\n\nNew upstream commits:\n```\n%s\n```%s' "$commits" "$note")"
+            gh issue create --title "Upstream moved but edison rebase conflicts ($short)" --body "$body" || echo "A matching open issue already exists."
+          fi
