@@ -2368,6 +2368,17 @@ int32_t field::check_lp_cost(uint8_t playerid, int32_t cost, uint32_t must_pay) 
 			return TRUE;
 	}
 	//cost[playerid].amount += val;
+	// Edison/pre-errata (duel_rule <= 1, rule #10): you cannot pay an LP COST
+	// that would reduce your LP to exactly 0 (or below). The effect is not
+	// activatable (must_pay == 0 gate). For mandatory "pay or destroy"
+	// maintenance costs the scripts already self-destruct when the cost is
+	// unpayable, so refusing the payment here yields the era self-destruct
+	// automatically. Modern (duel_rule >= 2) allows paying down to exactly 0.
+	if(core.duel_rule <= 1) {
+		if(val < player[playerid].lp)
+			return TRUE;
+		return FALSE;
+	}
 	if(val <= player[playerid].lp)
 		return TRUE;
 	return FALSE;
