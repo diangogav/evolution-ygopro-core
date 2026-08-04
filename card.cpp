@@ -1633,17 +1633,33 @@ void card::unequip() {
 	return;
 }
 int32_t card::get_union_count() {
+	// Edison/pre-errata (duel_rule <= 1): ALL union monsters carry
+	// "A monster can only be equipped with 1 Union Monster at a time."
+	// Fold every equipped union-status card (modern OR old) into a single
+	// total so both the C++ equip-target checks and the shared Lua
+	// Auxiliary.CheckUnionEquip / UnionEquipFilter (which key off
+	// GetUnionCount()'s (modern_count, old_count)) block a 2nd union of any
+	// kind. Zero script edits, applies to every ~44 union card at once.
+	bool edison = pduel->game_field->core.duel_rule <= 1;
 	int32_t count = 0;
 	for(auto& pcard : equiping_cards) {
-		if((pcard->data.type & TYPE_UNION) && pcard->is_affected_by_effect(EFFECT_UNION_STATUS))
+		if((pcard->data.type & TYPE_UNION)
+			&& (pcard->is_affected_by_effect(EFFECT_UNION_STATUS)
+				|| (edison && pcard->is_affected_by_effect(EFFECT_OLDUNION_STATUS))))
 			++count;
 	}
 	return count;
 }
 int32_t card::get_old_union_count() {
+	// See get_union_count: under Edison both accessors report the TOTAL union
+	// count so the "1 union per monster" era rule holds for every combination
+	// (old-on-old, old-on-modern, modern-on-old, modern-on-modern).
+	bool edison = pduel->game_field->core.duel_rule <= 1;
 	int32_t count = 0;
 	for(auto& pcard : equiping_cards) {
-		if((pcard->data.type & TYPE_UNION) && pcard->is_affected_by_effect(EFFECT_OLDUNION_STATUS))
+		if((pcard->data.type & TYPE_UNION)
+			&& (pcard->is_affected_by_effect(EFFECT_OLDUNION_STATUS)
+				|| (edison && pcard->is_affected_by_effect(EFFECT_UNION_STATUS))))
 			++count;
 	}
 	return count;
