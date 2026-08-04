@@ -1,0 +1,57 @@
+name: Edison fork — build & release
+
+# Builds the fork WASM with the reproducible docker recipe (tools/build-edison.sh)
+# and verifies it reproduces the sha pinned in that script. On a v*-edison tag it
+# also publishes the binary as a release asset. Separate from upstream's build.yml
+# (which only runs on master) so upstream rebases stay conflict-free.
+
+concurrency:
+  group: edison-build-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches: ["edison"]
+    tags: ["v*-edison"]
+  pull_request:
+    branches: ["edison"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # upload release assets on tag builds
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reproducible build + sha assert
+        # Runs the same docker-pinned recipe used locally; fails if the source no
+        # longer reproduces EXPECTED_SHA (bump the sha in the same commit that
+        # changes a feature).
+        run: bash tools/build-edison.sh
+
+      - name: Stage release asset
+        run: cp build/bin/wasm_cjs/Release/libocgcore.wasm libocgcore-edison-fork.wasm
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libocgcore-edison-fork
+          path: libocgcore-edison-fork.wasm
+
+      - name: Publish release asset (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" libocgcore-edison-fork.wasm --clobber
+          else
+            gh release create "$TAG" libocgcore-edison-fork.wasm \
+              --title "Edison fork $TAG" \
+              --notes "Prebuilt Edison ocgcore fork WASM. sha256: $(sha256sum libocgcore-edison-fork.wasm | cut -d' ' -f1). See EDISON-FORK.md for the pinned triple (ygopro-core base / koishipro-core.js / emscripten)."
+          fi
