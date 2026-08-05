@@ -1,0 +1,19 @@
+{
+	"compilerOptions": {
+		"ignoreDeprecations": "6.0",
+		"target": "ES2022",
+		"module": "commonjs",
+		"moduleResolution": "node",
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+		"resolveJsonModule": true,
+		"strict": false,
+		"strictNullChecks": true,
+		"skipLibCheck": true,
+		"types": ["node", "jest"]
+	},
+	"include": ["test/**/*"],
+	"exclude": ["node_modules"]
+}

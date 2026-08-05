@@ -13,3 +13,8 @@
 /wasm
 /dist
 /research
+
+# TypeScript/Jest test layer
+node_modules/
+test/resources/
+*.tsbuildinfo
