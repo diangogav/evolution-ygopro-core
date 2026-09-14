@@ -52,7 +52,7 @@ repo owns only the source, the reproducible build, and the published artifact.
 
 Needs only `docker`. Downloads Lua, runs premake5 and emmake in pinned
 containers, and fails loudly unless the output matches the expected sha256
-(`4272eb0d…`). Deterministic: same commit + same emsdk = identical bytes.
+(`08939bd2…`). Deterministic: same commit + same emsdk = identical bytes.
 
 ## Provenance & the `koishipro-core.js` coupling (ABI anchor)
 
@@ -69,7 +69,7 @@ generated against. So three things move as one pinned triple:
 
 | ygopro-core base | koishipro-core.js | emscripten |
 |---|---|---|
-| `973672d` | `1.5.2` | `3.1.7` |
+| `25eb27f` | `1.5.2` | `3.1.7` |
 
 **When taking an upstream update:**
 - **ABI-compatible change** (gameplay logic only — no `ocgapi.*` / struct /
