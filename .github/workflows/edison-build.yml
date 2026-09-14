@@ -55,3 +55,86 @@ jobs:
               --title "Edison fork $TAG" \
               --notes "Prebuilt Edison ocgcore fork WASM. sha256: $(sha256sum libocgcore-edison-fork.wasm | cut -d' ' -f1). See EDISON-FORK.md for the pinned triple (ygopro-core base / koishipro-core.js / emscripten)."
           fi
+
+      - name: Propagate the release to its pinned consumers (tag builds only)
+        # Two repos pin this release by version, and both go quietly stale if the
+        # pin is left behind: the server manifest keeps assembling the old core
+        # into ygopro/core/ocgcore-worker, and the behavior suite keeps testing a
+        # core nobody ships any more. Pinning is deliberate, because a core change
+        # alters game rules and a host rebuild must never swap engines on its own.
+        # Keeping the pins current is just paperwork, so this does it.
+        #
+        # Needs CONSUMER_PIN_TOKEN: a token with write access to both consumer
+        # repos, since the per-repo GITHUB_TOKEN cannot reach them. One PAT may
+        # serve as UPSTREAM_SYNC_TOKEN too, in the upstream-watch workflow.
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.CONSUMER_PIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "CONSUMER_PIN_TOKEN is not set — skipping the consumer bumps."
+            echo "Update these pins by hand, or set the secret to automate them:"
+            echo "  diangogav/EDOpro-server-ts             resources.manifest.json"
+            echo "  diangogav/evolution-pre-errata-scripts  test/setup-test-resources.sh"
+            exit 0
+          fi
+
+          TAG="${GITHUB_REF_NAME}"
+          SHA="$(sha256sum libocgcore-edison-fork.wasm | cut -d' ' -f1)"
+          BRANCH="chore/edison-core-${TAG}"
+
+          # Let gh own the credential so no token is ever written into a remote
+          # URL, where it would survive in .git/config and in any push error.
+          gh auth setup-git
+
+          # Opens (or refreshes) one bump PR. Fails loudly when no pin moved: a
+          # silent no-op would raise a PR that changes nothing, which is worse
+          # than no PR at all because it reads as done.
+          bump() {
+            local repo="$1" file="$2" title="$3"
+            shift 3
+
+            rm -rf /tmp/consumer
+            gh repo clone "$repo" /tmp/consumer -- --depth 1 --quiet
+            pushd /tmp/consumer > /dev/null
+            git config user.name "edison-release-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git checkout -q -B "$BRANCH"
+
+            local expr
+            for expr in "$@"; do
+              sed -i -E "$expr" "$file"
+            done
+
+            if git diff --quiet -- "$file"; then
+              echo "ERROR: no pin moved in ${repo}/${file} — the expected pattern is gone." >&2
+              exit 1
+            fi
+
+            git add "$file"
+            git commit -q -m "chore(edison-core): pin the fork core to ${TAG}
+
+          Released from evolution-ygopro-core ${TAG}.
+          sha256: ${SHA}"
+            git push -q -f origin "$BRANCH"
+
+            gh pr create --repo "$repo" --base main --head "$BRANCH" \
+              --title "$title" --body-file - <<PRBODY || gh pr edit "$BRANCH" --repo "$repo" --title "$title"
+          Automated pin bump for the Edison core fork release [\`${TAG}\`](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}).
+
+          sha256: \`${SHA}\`
+
+          If the upstream delta touched \`ocgapi.h\`, \`common.h\`, or \`premake/dll.lua\`, confirm the WASM exports and imports are unchanged before merging. A changed ABI means the pinned \`koishipro-core.js\` glue can no longer drive this binary, and the fix is a glue bump, not a merge.
+          PRBODY
+            popd > /dev/null
+          }
+
+          bump "diangogav/EDOpro-server-ts" "resources.manifest.json" \
+            "chore(resources): bump Edison core fork to ${TAG}" \
+            "s#(releases/download/)[^/]+(/libocgcore-edison-fork\.wasm)#\1${TAG}\2#"
+
+          bump "diangogav/evolution-pre-errata-scripts" "test/setup-test-resources.sh" \
+            "chore(ocgcore): pin the Edison core fork to ${TAG}" \
+            "s#(EDISON_CORE_VERSION=\"\\\$\{EDISON_CORE_VERSION:-)[^}]+(\})#\1${TAG}\2#" \
+            "s#(EDISON_CORE_SHA256=\")[0-9a-f]{64}(\")#\1${SHA}\2#"

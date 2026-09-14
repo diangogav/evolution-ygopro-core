@@ -32,17 +32,50 @@ per-feature instead of as one opaque blob.
 
 ## Tracking upstream
 
+**Never merge upstream into `edison`.** A merge commit changes the core sources
+without moving `EXPECTED_SHA`, so the reproducible-build assert fails and the
+branch stops being a clean feature stack. Rebase, always.
+
+`edison-upstream-watch.yml` checks upstream every Monday and does the rebase for
+you: clean, it opens a PR; conflicted or unpublishable, it opens an issue with
+the manual recipe. It never passes silently. To do it by hand:
+
 ```bash
 git fetch upstream
 git rebase upstream/master edison   # resolve per-feature conflicts if any
-./tools/build-edison.sh                   # rebuild + verify the WASM
+./tools/build-edison.sh             # rebuild; the sha assert fails, as expected
 ```
 
-Then run the **dual-core regression suite** in EDOpro-server-ts against the new
-binary (`OCGCORE_WASM=<path> npm test -- ocgcore`). It must stay green on both
-the stock and fork binaries before the new core is pinned. The behavior tests
-live in the server repo because they depend on its `HeadlessDuel` harness; this
-repo owns only the source, the reproducible build, and the published artifact.
+Then set `EXPECTED_SHA` to the sha it printed, update the base in the pinned
+triple below, and commit both together. Tagging `vX.Y.Z-edison` publishes the
+release asset and opens the pin-bump PRs on the consumers.
+
+Before merging those, run the **dual-core regression suite** in
+`evolution-pre-errata-scripts` (`bash test/setup-test-resources.sh && npx jest`).
+It must stay green on both the stock and fork binaries. The behavior tests live
+there because they depend on that repo's `HeadlessDuel` harness and its
+pre-errata card scripts; this repo owns only the source, the reproducible build,
+and the published artifact.
+
+> The differential tests (`soul-exchange`, `lp-cost-limit`, `machina-gearframe`)
+> pin each core per-duel through `wasmPath`, so `OCGCORE_WASM` does **not**
+> re-point them. They exercise whichever binary the setup script provisioned.
+
+### Automation secrets
+
+Both are optional. Without them nothing breaks: each workflow degrades to
+reporting what a human should run. With them, the paperwork disappears.
+
+| Secret | Needed for | Scope |
+|---|---|---|
+| `UPSTREAM_SYNC_TOKEN` | publishing the weekly sync branch | `workflow` on this repo |
+| `CONSUMER_PIN_TOKEN` | the pin-bump PRs on release | write on the two consumer repos |
+
+`UPSTREAM_SYNC_TOKEN` exists because an upstream delta regularly touches
+`.github/workflows/*`, and the default `GITHUB_TOKEN` is refused on those paths
+by design — the `workflows` permission it asks for cannot be granted through a
+workflow's `permissions` block. One PAT carrying `repo` and `workflow` can serve
+as both secrets.
 
 ## Building
 
