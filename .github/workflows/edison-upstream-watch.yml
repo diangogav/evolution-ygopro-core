@@ -1,9 +1,22 @@
 name: Edison fork — upstream watch
 
 # Weekly: detect movement in purerosefallen/ygopro-core. If it moved, rebase the
-# edison feature commits onto the new upstream tip and open a PR (clean) or an
-# issue (conflicts). Flags ABI-sensitive changes (ocgapi / headers) that may
-# require a koishipro-core.js bump — see EDISON-FORK.md.
+# edison feature commits onto the new upstream tip and open a PR. Flags
+# ABI-sensitive changes (ocgapi / headers) that may require a koishipro-core.js
+# bump — see EDISON-FORK.md.
+#
+# Publishing the sync branch needs a token carrying the `workflow` scope: an
+# upstream delta regularly touches .github/workflows/*, and the default
+# GITHUB_TOKEN is refused on those paths by design (the `workflows` permission
+# cannot be granted through the permissions block). Set the UPSTREAM_SYNC_TOKEN
+# secret to a PAT or GitHub App token with that scope to get the automatic PR.
+# Without it the rebase still runs and the result is still reported — only the
+# publish step is skipped, and the issue carries the manual recipe instead.
+#
+# Every outcome reports. A silent pass is only ever "upstream unchanged": a
+# conflict, a refused push, or an unexpected error all open or update an issue,
+# because an unnoticed failure leaves the fork behind and invites a manual merge
+# that breaks the reproducible-build assert.
 
 on:
   schedule:
@@ -20,10 +33,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout edison (full history)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: edison
           fetch-depth: 0
+          # Falls back to GITHUB_TOKEN when the secret is unset; the push step
+          # detects which one it got and degrades to reporting.
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
 
       - name: Configure git identity
         run: |
@@ -38,9 +54,13 @@ jobs:
       - name: Detect upstream movement
         id: check
         run: |
+          set -euo pipefail
           base="$(git merge-base edison upstream/master)"
           upstream="$(git rev-parse upstream/master)"
-          echo "base=$base" >> "$GITHUB_OUTPUT"
+          {
+            echo "base=$base"
+            echo "short=$(git rev-parse --short upstream/master)"
+          } >> "$GITHUB_OUTPUT"
           if [ "$base" = "$upstream" ]; then
             echo "moved=false" >> "$GITHUB_OUTPUT"
             echo "Upstream unchanged ($upstream) — nothing to do."
@@ -49,33 +69,133 @@ jobs:
             echo "Upstream moved: base $base -> $upstream"
           fi
 
-      - name: Rebase and open PR / issue
+      - name: Rebase edison onto upstream
+        id: rebase
         if: steps.check.outputs.moved == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          # shellcheck disable=SC2016  # printf formats are single-quoted on purpose (literal %s/backticks)
           set -euo pipefail
           base="${{ steps.check.outputs.base }}"
-          short="$(git rev-parse --short upstream/master)"
-          commits="$(git log --oneline "$base"..upstream/master)"
+
+          # Recorded for the PR/issue body, and for the ABI heuristic below.
+          git log --oneline "$base"..upstream/master > /tmp/commits.txt
 
           # ABI sensitivity: does the upstream delta touch the C API or headers?
-          abi="$(git diff --name-only "$base" upstream/master | grep -E 'ocgapi\.(cpp|h)$|\.h$' || true)"
-          note=""
-          if [ -n "$abi" ]; then
-            note="$(printf '\n\n**ABI-sensitive** — upstream changed these files, which may require bumping koishipro-core.js (see EDISON-FORK.md):\n```\n%s\n```' "$abi")"
-          fi
+          # Deliberately broad — a false flag costs a glance, a missed one ships
+          # a WASM the pinned koishipro-core.js glue cannot drive. The definitive
+          # answer is the exports/imports diff on the built binary.
+          git diff --name-only "$base" upstream/master \
+            | grep -E 'ocgapi\.(cpp|h)$|\.h$' > /tmp/abi.txt || true
 
           git branch -D upstream-sync 2>/dev/null || true
           git checkout -b upstream-sync
 
           if git rebase upstream/master; then
-            git push -f origin upstream-sync
-            body="$(printf 'Automated upstream sync — rebased the edison feature commits onto upstream/master.\n\nNew upstream commits:\n```\n%s\n```\n\nAfter merge: run tools/build-edison.sh, update EXPECTED_EDISON_CORE_SHA256 and publish a new release, then run the dual-core regression suite in EDOpro-server-ts.%s' "$commits" "$note")"
-            gh pr create --base edison --head upstream-sync --title "Sync edison onto upstream ($short)" --body "$body" || echo "PR from upstream-sync already exists — branch updated."
+            echo "rebased=true" >> "$GITHUB_OUTPUT"
           else
             git rebase --abort
-            body="$(printf 'Automated upstream sync could not rebase cleanly — resolve manually.\n\nNew upstream commits:\n```\n%s\n```%s' "$commits" "$note")"
-            gh issue create --title "Upstream moved but edison rebase conflicts ($short)" --body "$body" || echo "A matching open issue already exists."
+            echo "rebased=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Publish sync branch
+        id: publish
+        if: steps.rebase.outputs.rebased == 'true'
+        run: |
+          set -uo pipefail
+          if git push -f origin upstream-sync 2>/tmp/push-error.txt; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Push refused:"
+            cat /tmp/push-error.txt
+          fi
+
+      - name: Open or update the sync PR
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          short="${{ steps.check.outputs.short }}"
+          {
+            printf 'Automated upstream sync — rebased the edison feature commits onto upstream/master.\n\n'
+            printf 'New upstream commits:\n```\n'
+            cat /tmp/commits.txt
+            printf '\n```\n'
+            if [ -s /tmp/abi.txt ]; then
+              printf '\n**ABI-sensitive** — upstream changed these files, which may require bumping koishipro-core.js (see EDISON-FORK.md):\n```\n'
+              cat /tmp/abi.txt
+              printf '\n```\n'
+            fi
+            printf '\nAfter merge:\n'
+            printf '1. `./tools/build-edison.sh` — it fails on the sha assert, which is expected for any source change.\n'
+            printf '2. Set `EXPECTED_SHA` in `tools/build-edison.sh` to the sha it printed, and update the base in `EDISON-FORK.md`.\n'
+            printf '3. Push the bump, then tag `vX.Y.Z-edison` to publish the release asset.\n'
+            printf '4. Run the dual-core regression suite against the new binary before pinning it in the server manifest.\n'
+          } > /tmp/pr-body.md
+
+          gh pr create --base edison --head upstream-sync \
+            --title "Sync edison onto upstream ($short)" \
+            --body-file /tmp/pr-body.md \
+            || gh pr edit upstream-sync --body-file /tmp/pr-body.md
+
+      - name: Report an unpublishable sync
+        if: steps.rebase.outputs.rebased == 'false' || steps.publish.outputs.published == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          short="${{ steps.check.outputs.short }}"
+
+          if [ "${{ steps.rebase.outputs.rebased }}" = "false" ]; then
+            title="[upstream-watch] rebase conflicts on upstream $short"
+            reason="$(printf 'The edison feature commits do not rebase cleanly onto upstream/master. Resolve it locally:\n```bash\ngit fetch upstream\ngit rebase upstream/master edison\n```\n')"
+          else
+            title="[upstream-watch] cannot publish sync branch for upstream $short"
+            reason="$(printf 'The rebase was clean but the sync branch could not be pushed:\n```\n%s\n```\nAn upstream delta that touches `.github/workflows/*` cannot be pushed by the default GITHUB_TOKEN. Set the `UPSTREAM_SYNC_TOKEN` secret to a PAT or GitHub App token carrying the `workflow` scope, then re-run this workflow. Until then, rebase locally:\n```bash\ngit fetch upstream\ngit rebase upstream/master edison\n```\n' "$(cat /tmp/push-error.txt)")"
+          fi
+
+          {
+            printf '%s\n\n' "$reason"
+            printf 'New upstream commits:\n```\n'
+            cat /tmp/commits.txt
+            printf '\n```\n'
+            if [ -s /tmp/abi.txt ]; then
+              printf '\n**ABI-sensitive** — upstream changed these files, which may require bumping koishipro-core.js (see EDISON-FORK.md):\n```\n'
+              cat /tmp/abi.txt
+              printf '\n```\n'
+            fi
+            printf '\nDo NOT merge upstream into `edison`. A merge commit changes the core sources without bumping `EXPECTED_SHA`, and the reproducible-build assert fails.\n'
+          } > /tmp/issue-body.md
+
+          existing="$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")] | .[0].number // empty")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/issue-body.md
+          else
+            gh issue create --title "$title" --body-file /tmp/issue-body.md
+          fi
+
+      - name: Report an unexpected failure
+        if: failure() && steps.rebase.outputs.rebased != 'false' && steps.publish.outputs.published != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="[upstream-watch] the weekly run failed"
+          body="$(printf 'The upstream watch failed before it could classify the sync. Inspect the run:\n\n%s/%s/actions/runs/%s\n\nWhile this is broken the fork silently falls behind upstream.\n' \
+            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+
+          existing="$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")] | .[0].number // empty")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Fail the run when the sync could not be published
+        # The issue is the signal that reaches a human; a red run is the signal
+        # that survives in the Actions list. A green check on a fork that stayed
+        # behind is the failure mode this whole workflow exists to prevent.
+        if: steps.rebase.outputs.rebased == 'false' || steps.publish.outputs.published == 'false'
+        run: exit 1
