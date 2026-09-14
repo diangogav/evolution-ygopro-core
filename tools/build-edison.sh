@@ -12,7 +12,7 @@
 # never affects the output.
 set -euo pipefail
 
-EXPECTED_SHA="4272eb0d077702fea3e9fb1e5255653a99079ec82e06d45448aa438c6a302f23"
+EXPECTED_SHA="08939bd20884062f646d4722fdc50beca6b8efabbc97dc9f0ce2e723ecb0f1e2"
 EMSDK_IMAGE="emscripten/emsdk:3.1.7"   # ABI-compatible with koishipro-core.js 1.5.2 JS glue
 LUA_VERSION="5.4.8"
 
