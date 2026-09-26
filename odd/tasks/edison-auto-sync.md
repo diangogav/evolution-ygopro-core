@@ -91,3 +91,18 @@ Strategy: ask-on-risk. Forecast ~350 authored changed lines.
 User: create a PAT (repo + workflow), store it as `UPSTREAM_SYNC_TOKEN` and
 `CONSUMER_PIN_TOKEN`, merge `ci/edison-auto-sync` into `edison`, then dispatch
 `edison-upstream-watch.yml` once to exercise the chain.
+
+## Review evidence
+- 2026-09-26: native review (lineage review-8e994b31f2323500) on edison..e8eea94,
+  tier high, consent granted by the user, four lenses captured, state
+  approved, acknowledged and burned. 21 advisory non-blocking findings; the
+  ones worth a follow-up task:
+  - auto-tag is not re-run safe when the tag push succeeds and the dispatch
+    fails (the pre-existing-tag guard then refuses); recover by dispatching
+    the existing tag instead of failing.
+  - the watch build step runs upstream-controlled build scripts with
+    GH_TOKEN in scope; move the docker build into a step without the token.
+  - `wasm_abi_diff` exit 1 is read as "ABI changed" even when a signature
+    could not be produced; distinguish tooling failure from a real diff.
+  - the failed-tag-build reporter sits before the consumer propagation step,
+    so a propagation failure still goes unreported; move it last.
