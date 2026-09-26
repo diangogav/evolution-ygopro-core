@@ -36,35 +36,73 @@ per-feature instead of as one opaque blob.
 without moving `EXPECTED_SHA`, so the reproducible-build assert fails and the
 branch stops being a clean feature stack. Rebase, always.
 
-`edison-upstream-watch.yml` checks upstream every Monday and does the rebase for
-you: clean, it opens a PR; conflicted or unpublishable, it opens an issue with
-the manual recipe. It never passes silently. To do it by hand:
+### The automated chain
 
-```bash
-git fetch upstream
-git rebase upstream/master edison   # resolve per-feature conflicts if any
-./tools/build-edison.sh             # rebuild; the sha assert fails, as expected
-```
+Taking an upstream update is one chain of automation with exactly two human
+gates — merging the sync PR here, and merging the pin PR on the server:
 
-Then set `EXPECTED_SHA` to the sha it printed, update the base in the pinned
-triple below, and commit both together. Tagging `vX.Y.Z-edison` publishes the
-release asset and opens the pin-bump PRs on the consumers.
-
-Before merging those, run the **dual-core regression suite** in
-`evolution-pre-errata-scripts` (`bash test/setup-test-resources.sh && npx jest`).
-It must stay green on both the stock and fork binaries. The behavior tests live
-there because they depend on that repo's `HeadlessDuel` harness and its
-pre-errata card scripts; this repo owns only the source, the reproducible build,
-and the published artifact.
+1. **Watch** (`edison-upstream-watch.yml`, Mondays 06:00 UTC or manually
+   dispatched) detects upstream movement and rebases the four edison feature
+   commits onto the new upstream tip.
+2. **Clean rebase** → the workflow builds the WASM in the same run, in
+   `EDISON_REPIN` mode: it re-pins `EXPECTED_SHA` in `tools/build-edison.sh`
+   and updates the base column in the pinned triple below, then commits both
+   on the `upstream-sync` branch — so the sync PR arrives green instead of
+   with a known-failing sha assert. It also runs the **definitive ABI diff**:
+   the new binary's exports/imports (`tools/edison-release-lib.sh`,
+   `wasm_abi_signature`/`wasm_abi_diff`) against the currently released asset,
+   and puts the verdict in the PR body. Conflicted or unpublishable, it opens
+   an issue with the manual recipe instead. It never passes silently.
+3. **Sync PR — human gate 1.** Review the ABI verdict, then merge.
+4. **Auto-tag** (`edison-auto-tag.yml`) fires on that merge: it computes the
+   next release tag and pushes it on the merge commit.
+5. **Build + release** (`edison-build.yml`) is dispatched by the auto-tag
+   workflow (a tag pushed with `GITHUB_TOKEN` does not trigger its own
+   `on.push.tags` workflow, so the auto-tag job calls `gh workflow run`
+   explicitly). It rebuilds, publishes the release asset, and opens the
+   consumer pin-bump PRs.
+6. **Pin PR on the server — human gate 2.** Before merging it, run the
+   **dual-core regression suite** in `evolution-pre-errata-scripts`
+   (`bash test/setup-test-resources.sh && npx jest`) against the released
+   binary. It must stay green on both the stock and fork binaries. The
+   behavior tests live there because they depend on that repo's
+   `HeadlessDuel` harness and its pre-errata card scripts; this repo owns
+   only the source, the reproducible build, and the published artifact.
 
 > The differential tests (`soul-exchange`, `lp-cost-limit`, `machina-gearframe`)
 > pin each core per-duel through `wasmPath`, so `OCGCORE_WASM` does **not**
 > re-point them. They exercise whichever binary the setup script provisioned.
 
+### Version rule
+
+Every upstream sync is a **minor bump** (`vX.Y.0-edison`), computed by
+`next_edison_tag` in `tools/edison-release-lib.sh` — the chain above always
+takes this path. A hand-authored feature or fix commit (not an upstream sync)
+is still tagged manually, at whatever bump fits that change.
+
+### Manual fallback
+
+If a step in the chain reports instead of automating (no rebase-publish
+token, a conflict, a failed build, or working outside CI), do it by hand:
+
+```bash
+git fetch upstream
+git rebase upstream/master edison        # resolve per-feature conflicts if any
+EDISON_REPIN=1 ./tools/build-edison.sh   # rebuilds and re-pins EXPECTED_SHA
+```
+
+Then update the base in the pinned triple below and commit both together.
+Tagging `vX.Y.Z-edison` publishes the release asset and opens the pin-bump
+PRs on the consumers — run the dual-core regression suite above before
+merging those.
+
 ### Automation secrets
 
 Both are optional. Without them nothing breaks: each workflow degrades to
 reporting what a human should run. With them, the paperwork disappears.
+`edison-auto-tag.yml` needs neither — tagging and dispatching a workflow on
+this same repo only needs the default `GITHUB_TOKEN`, already granted through
+its `permissions` block.
 
 | Secret | Needed for | Scope |
 |---|---|---|
@@ -84,8 +122,10 @@ as both secrets.
 ```
 
 Needs only `docker`. Downloads Lua, runs premake5 and emmake in pinned
-containers, and fails loudly unless the output matches the expected sha256
-(`08939bd2…`). Deterministic: same commit + same emsdk = identical bytes.
+containers, and fails loudly unless the output matches the sha256 pinned in
+`EXPECTED_SHA` (in `tools/build-edison.sh` — not quoted here, since the
+automated chain above moves it on every upstream sync). Deterministic: same
+commit + same emsdk = identical bytes.
 
 ## Provenance & the `koishipro-core.js` coupling (ABI anchor)
 
