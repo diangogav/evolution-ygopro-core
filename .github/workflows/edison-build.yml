@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: write # upload release assets on tag builds
+  issues: write # report a failed tag build
 
 jobs:
   build:
@@ -54,6 +55,26 @@ jobs:
             gh release create "$TAG" libocgcore-edison-fork.wasm \
               --title "Edison fork $TAG" \
               --notes "Prebuilt Edison ocgcore fork WASM. sha256: $(sha256sum libocgcore-edison-fork.wasm | cut -d' ' -f1). See EDISON-FORK.md for the pinned triple (ygopro-core base / koishipro-core.js / emscripten)."
+          fi
+
+      - name: Report a failed tag build
+        # Tag builds are started by edison-auto-tag.yml with nobody watching,
+        # so a red run must reach a human as an issue, not stay in the Actions
+        # list. Branch and PR builds are watched by their PR and stay quiet.
+        if: failure() && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="[release] tag build failed for ${GITHUB_REF_NAME}"
+          body="$(printf 'The build for tag `%s` failed, so no release asset was published and no consumer pin PR was opened. Inspect the run:\n\n%s/%s/actions/runs/%s\n\nA sha assert failure here means the build did not reproduce the sha re-pinned in the sync PR; reproduce locally with `./tools/build-edison.sh` before re-running.\n' \
+            "$GITHUB_REF_NAME" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+          existing="$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")] | .[0].number // empty")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
           fi
 
       - name: Propagate the release to its pinned consumers (tag builds only)

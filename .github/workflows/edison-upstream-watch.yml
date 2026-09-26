@@ -200,7 +200,9 @@ jobs:
       - name: Open or update the sync PR
         if: steps.publish.outputs.published == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # A PR opened with GITHUB_TOKEN raises no pull_request event, so the
+          # build check would never run on it. The PAT makes it a normal PR.
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
         run: |
           set -euo pipefail
           short="${{ steps.check.outputs.short }}"

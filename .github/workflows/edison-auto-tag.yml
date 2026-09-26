@@ -56,11 +56,16 @@ jobs:
 
       - name: Tag the merge commit
         id: tag
+        env:
+          # The title is user-editable text. Passing it through the environment
+          # keeps it out of the shell script source, where a crafted title
+          # would otherwise be interpolated as code.
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
           next="${{ steps.version.outputs.next }}"
           merge_sha="${{ github.event.pull_request.merge_commit_sha }}"
-          pr_title="${{ github.event.pull_request.title }}"
+          pr_title="$PR_TITLE"
 
           # The sync PR's title is "Sync edison onto upstream (<short>)"
           # (edison-upstream-watch.yml), so the upstream short sha is the
