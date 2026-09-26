@@ -96,6 +96,94 @@ jobs:
             echo "rebased=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Build and re-pin the reproducible sha
+        id: build
+        if: steps.rebase.outputs.rebased == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          short="${{ steps.check.outputs.short }}"
+
+          # 1. Build with the reproducible docker recipe and let it re-pin its
+          #    own EXPECTED_SHA instead of asserting and failing — this is the
+          #    step that used to be a manual chore after every clean rebase.
+          if ! EDISON_REPIN=1 EDISON_SHA_OUT=/tmp/new-sha.txt bash tools/build-edison.sh > /tmp/build.log 2>&1; then
+            cat /tmp/build.log
+            title="[upstream-watch] build failed on upstream $short"
+            body="$(printf 'The reproducible build failed while re-pinning after the rebase onto upstream %s. Inspect the run:\n\n%s/%s/actions/runs/%s\n\nThis usually means upstream introduced a toolchain-incompatible change. Reproduce locally:\n```bash\ngit fetch upstream\ngit rebase upstream/master edison\n./tools/build-edison.sh\n```\n' \
+              "$short" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+            existing="$(gh issue list --state open --limit 100 --json number,title \
+              --jq "[.[] | select(.title == \"$title\")] | .[0].number // empty")"
+            if [ -n "$existing" ]; then
+              gh issue comment "$existing" --body "$body"
+            else
+              gh issue create --title "$title" --body "$body"
+            fi
+            exit 1
+          fi
+          cat /tmp/build.log
+          new_sha="$(cat /tmp/new-sha.txt)"
+          echo "new_sha=$new_sha" >> "$GITHUB_OUTPUT"
+
+          # 2. Update the pinned base in the ygopro-core/koishipro-core.js/emscripten
+          #    triple table. Anchored on the whole row shape (not just the sha),
+          #    so it never touches the koishipro-core.js/emscripten columns and
+          #    fails loudly instead of silently no-op-ing if the row's shape
+          #    ever changes underneath it.
+          sed -i -E "s/(\| \`)[0-9a-f]{7,40}(\` \| \`1\.5\.2\` \| \`3\.1\.7\` \|)/\1${short}\2/" EDISON-FORK.md
+          if git diff --quiet -- EDISON-FORK.md; then
+            echo "ERROR: EDISON-FORK.md pinned-triple row did not change — the expected pattern is gone." >&2
+            exit 1
+          fi
+
+          # 3. Commit the re-pin on upstream-sync, mirroring the shape of past
+          #    manual re-pin commits (e.g. afa1f3f) so the branch history stays
+          #    uniform whether a human or this workflow made the commit.
+          git add tools/build-edison.sh EDISON-FORK.md
+          git commit -q -m "chore(edison): rebase onto upstream ${short} and re-pin reproducible sha"
+
+          # 4. Definitive ABI verdict: diff this build's exports/imports against
+          #    the binary already shipped in the latest v*-edison release. This
+          #    replaces guesswork with the actual answer to "can the pinned
+          #    koishipro-core.js glue still drive this binary".
+          # shellcheck disable=SC1091
+          source tools/edison-release-lib.sh
+
+          latest_tag="$(gh release list --limit 50 --json tagName --jq \
+            '[.[].tagName | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+-edison$"))][0] // empty' 2>/dev/null || true)"
+
+          abi_changed="unknown"
+          if [ -n "$latest_tag" ] && gh release download "$latest_tag" \
+              --pattern libocgcore-edison-fork.wasm --output /tmp/current.wasm \
+              2>/tmp/gh-download-error.txt; then
+            if wasm_abi_diff /tmp/current.wasm build/bin/wasm_cjs/Release/libocgcore.wasm > /tmp/abi-diff.txt; then
+              abi_changed="false"
+            else
+              abi_changed="true"
+            fi
+          else
+            echo "Could not download the current release asset (tag: ${latest_tag:-none found}):"
+            cat /tmp/gh-download-error.txt 2>/dev/null || true
+          fi
+          echo "abi_changed=$abi_changed" >> "$GITHUB_OUTPUT"
+
+          case "$abi_changed" in
+            false)
+              printf 'identical to `%s`.\n' "$latest_tag" > /tmp/abi-verdict.md
+              ;;
+            true)
+              {
+                printf 'CHANGED — the pinned koishipro-core.js glue can no longer drive this binary; bump the glue before merging the consumer PRs.\n\n```diff\n'
+                cat /tmp/abi-diff.txt
+                printf '\n```\n'
+              } > /tmp/abi-verdict.md
+              ;;
+            *)
+              printf 'unknown — could not download the `%s` asset.\n' "${latest_tag:-<no v*-edison release found>}" > /tmp/abi-verdict.md
+              ;;
+          esac
+
       - name: Publish sync branch
         id: publish
         if: steps.rebase.outputs.rebased == 'true'
@@ -121,16 +209,18 @@ jobs:
             printf 'New upstream commits:\n```\n'
             cat /tmp/commits.txt
             printf '\n```\n'
+            printf '\n## ABI verdict (definitive: exports/imports of the built WASM vs the current release)\n\n'
+            cat /tmp/abi-verdict.md
+            printf '\n'
             if [ -s /tmp/abi.txt ]; then
-              printf '\n**ABI-sensitive** — upstream changed these files, which may require bumping koishipro-core.js (see EDISON-FORK.md):\n```\n'
+              printf '\n**Filename heuristic (secondary hint)** — upstream changed these files, which often correlates with an ABI change (the verdict above is the definitive answer; see EDISON-FORK.md):\n```\n'
               cat /tmp/abi.txt
               printf '\n```\n'
             fi
             printf '\nAfter merge:\n'
-            printf '1. `./tools/build-edison.sh` — it fails on the sha assert, which is expected for any source change.\n'
-            printf '2. Set `EXPECTED_SHA` in `tools/build-edison.sh` to the sha it printed, and update the base in `EDISON-FORK.md`.\n'
-            printf '3. Push the bump, then tag `vX.Y.Z-edison` to publish the release asset.\n'
-            printf '4. Run the dual-core regression suite against the new binary before pinning it in the server manifest.\n'
+            printf '1. Review the ABI verdict above.\n'
+            printf '2. Merge — `edison-auto-tag.yml` tags the next minor release and the build workflow publishes it and opens the consumer pin PRs.\n'
+            printf '3. Run the dual-core regression suite in `evolution-pre-errata-scripts` against the released binary before merging the server pin PR.\n'
           } > /tmp/pr-body.md
 
           gh pr create --base edison --head upstream-sync \
@@ -176,7 +266,11 @@ jobs:
           fi
 
       - name: Report an unexpected failure
-        if: failure() && steps.rebase.outputs.rebased != 'false' && steps.publish.outputs.published != 'false'
+        # steps.build.outcome == 'failure' is excluded because the build step
+        # above already reports and reds out that exact failure itself; this
+        # catch-all is only for a failure the earlier steps did not classify
+        # (e.g. the "Detect upstream movement" step itself erroring out).
+        if: failure() && steps.rebase.outputs.rebased != 'false' && steps.publish.outputs.published != 'false' && steps.build.outcome != 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
