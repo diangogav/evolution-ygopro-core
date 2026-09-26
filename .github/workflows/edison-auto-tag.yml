@@ -1,0 +1,121 @@
+name: Edison fork — auto-tag merged sync
+
+# Closes the loop after a human merges the sync PR that edison-upstream-watch.yml
+# opens: compute the next minor vX.Y.Z-edison tag, tag the merge commit, and
+# dispatch edison-build.yml on that tag so it publishes the release asset and
+# opens the consumer pin PRs — without a human ever typing `git tag`.
+#
+# This never runs for a hand-authored release (a manually tagged feature or
+# fix commit): it only fires for a merged `upstream-sync` PR, which is the
+# branch name edison-upstream-watch.yml always uses.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [edison]
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+jobs:
+  auto-tag:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'upstream-sync'
+    steps:
+      - name: Checkout edison (full history and tags)
+        uses: actions/checkout@v6
+        with:
+          ref: edison
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute the next release tag
+        id: version
+        run: |
+          set -euo pipefail
+          latest="$(git tag -l 'v*-edison' --sort=-v:refname | head -1)"
+          # shellcheck disable=SC1091
+          source tools/edison-release-lib.sh
+          next="$(next_edison_tag "$latest")"
+
+          # Guard against a pre-existing tag instead of moving it: a tag that
+          # already exists means this merge was already released (e.g. a
+          # re-run, or the watch workflow was dispatched twice), and silently
+          # re-tagging would either no-op or, worse, move a published tag.
+          if git rev-parse -q --verify "refs/tags/${next}" >/dev/null 2>&1; then
+            echo "ERROR: tag ${next} already exists — refusing to move it." >&2
+            echo "If this merge genuinely needs a new release, delete or advance" >&2
+            echo "the stale tag by hand first, then re-run this workflow." >&2
+            exit 1
+          fi
+
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Tag the merge commit
+        id: tag
+        run: |
+          set -euo pipefail
+          next="${{ steps.version.outputs.next }}"
+          merge_sha="${{ github.event.pull_request.merge_commit_sha }}"
+          pr_title="${{ github.event.pull_request.title }}"
+
+          # The sync PR's title is "Sync edison onto upstream (<short>)"
+          # (edison-upstream-watch.yml), so the upstream short sha is the
+          # parenthesized token. Falls back to "unknown" if the title was
+          # hand-edited and no longer carries it.
+          upstream_short="$(printf '%s' "$pr_title" | sed -n 's/.*(\([0-9a-f]\{7,40\}\)).*/\1/p')"
+          upstream_short="${upstream_short:-unknown}"
+
+          git config user.name "edison-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git tag -a "$next" -m "Edison release ${next} — rebased onto upstream ${upstream_short}." "$merge_sha"
+
+          # A tag pushed with GITHUB_TOKEN does not trigger other workflows
+          # (GitHub suppresses that to prevent infinite trigger loops), so
+          # pushing this tag alone would NOT start edison-build.yml's
+          # `on.push.tags` trigger. workflow_dispatch is explicitly exempt
+          # from that suppression, which is why the next step dispatches
+          # edison-build.yml directly instead of relying on this push.
+          git push origin "$next"
+          echo "upstream_short=$upstream_short" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch the build & release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          next="${{ steps.version.outputs.next }}"
+
+          # On a workflow_dispatch run started against a tag ref, `github.ref`
+          # inside that run is `refs/tags/<tag>` — this is the same rule
+          # GitHub's contexts documentation states generally for tag refs
+          # ("For tags it is refs/tags/<tag_name>"), and workflow_dispatch's
+          # own `ref` input is exactly the ref the run executes against. That
+          # is what lets edison-build.yml's existing
+          # `if: startsWith(github.ref, 'refs/tags/')` release condition keep
+          # working unchanged for a run started this way.
+          gh workflow run edison-build.yml --ref "$next"
+
+      - name: Report a failure to release the merged sync
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="[auto-tag] could not release the merged upstream sync"
+          next="${{ steps.version.outputs.next }}"
+          merge_sha="${{ github.event.pull_request.merge_commit_sha }}"
+          body="$(printf 'Auto-tagging the merged upstream-sync PR (#%s) failed. Inspect the run:\n\n%s/%s/actions/runs/%s\n\nManual recipe:\n```bash\ngit tag %s %s\ngit push origin %s\ngh workflow run edison-build.yml --ref %s\n```\n' \
+            "${{ github.event.pull_request.number }}" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" \
+            "${next:-<next tag>}" "$merge_sha" "${next:-<next tag>}" "${next:-<next tag>}")"
+
+          existing="$(gh issue list --state open --limit 100 --json number,title \
+            --jq "[.[] | select(.title == \"$title\")] | .[0].number // empty")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
