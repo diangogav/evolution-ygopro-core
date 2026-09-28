@@ -52,8 +52,17 @@ Out of scope: auto-merging any PR; changing consumer repos; touching core C++.
       Evidence: cdfef82; writer observed RED 5/7 failing then GREEN 7/7.
 - [x] T3 Extend `edison-upstream-watch.yml`: CI build, re-pin commit, ABI diff.
       Route: delegated writer. Evidence: 7b04f0e; YAML parses.
-- [x] T4 New `edison-auto-tag.yml`: tag on merged sync PR, dispatch build.
+- [~] T4 New `edison-auto-tag.yml`: tag on merged sync PR, dispatch build.
       Route: delegated writer. Evidence: 8933c9a; YAML parses.
+      REOPENED 2026-09-28: invalidated by T7. A sync PR is a rebased history
+      and can never be merged by GitHub's buttons (PR #1: CONFLICTING on the
+      two pin files; "Rebase and merge" would replay upstream commits on top
+      of the feature stack), so `pull_request closed && merged` never fires.
+- [ ] T7 Replace auto-tag with `edison-promote-sync.yml` (workflow_dispatch):
+      verify the open sync PR, force-with-lease `upstream-sync` onto `edison`
+      with the PAT, tag the next minor, push the tag (PAT push triggers the
+      tag build), close the PR. Update the watch PR body, EDISON-FORK.md and
+      the build comment. Route: delegated writer.
 - [x] T5 `EDISON-FORK.md` docs update. Route: delegated writer. Evidence: e987710.
 - [x] T6 Spot check. Route: inline. Evidence: `npx jest test/tools` re-run by
       the orchestrator: 7 passed. Review found three gaps, fixed in 7988db0:
@@ -91,6 +100,14 @@ Strategy: ask-on-risk. Forecast ~350 authored changed lines.
 User: create a PAT (repo + workflow), store it as `UPSTREAM_SYNC_TOKEN` and
 `CONSUMER_PIN_TOKEN`, merge `ci/edison-auto-sync` into `edison`, then dispatch
 `edison-upstream-watch.yml` once to exercise the chain.
+
+## Runs
+- 2026-09-28 run 36431769566: rebase, CI build, re-pin (sha 60f57217…) and
+  branch publish worked; PR/issue creation failed because gh inside a fork
+  targets the parent repo. Fixed in 50e3ba0 (GH_REPO pin, PAT only for
+  `gh pr create`).
+- 2026-09-28 run 36432878352: full success, PR #1 opened, ABI verdict
+  identical to v1.1.0-edison, same sha as the previous run (reproducible).
 
 ## Review evidence
 - 2026-09-26: native review (lineage review-8e994b31f2323500) on edison..e8eea94,
