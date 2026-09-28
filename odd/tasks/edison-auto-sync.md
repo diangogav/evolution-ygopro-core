@@ -105,11 +105,15 @@ Strategy: ask-on-risk. Forecast ~350 authored changed lines.
   ancestor ok, ABI identical to v1.1.0-edison, next tag v1.2.0-edison.
   Rule: re-run the watch after any push to edison and before promoting.
 
-## Next step
-Human gate 1 on PR #1 (upstream ed031ac, ABI identical to v1.1.0-edison):
-run the "Edison fork — promote sync" workflow. It replaces `edison`, tags
-v1.2.0-edison, and the tag build publishes the release and opens the pin PRs.
-Then gate 2: dual-core suite in evolution-pre-errata-scripts, merge the
+- 2026-09-28: PROMOTED. promote-sync run 36450194557 all green (secret check,
+  resolve, tag compute, force-with-lease, tag push, close: PR #1 was already
+  auto-marked MERGED by GitHub as predicted). Tag build 36450295278 green,
+  sha assert MATCH, release v1.2.0-edison published, consumer pin PRs opened:
+  EDOpro-server-ts #401, evolution-pre-errata-scripts #4. Asset sha
+  60f5721700faea5f… equals the re-pinned EXPECTED_SHA. Feature complete.
+
+## Next step (was: human gate 1 on PR #1) (upstream ed031ac, ABI identical to v1.1.0-edison):
+DONE. Remaining gate 2: dual-core suite in evolution-pre-errata-scripts, merge the
 server pin PR. The promote workflow itself is not yet exercised.
 
 ## Runs
