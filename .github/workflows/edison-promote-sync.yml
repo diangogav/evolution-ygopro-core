@@ -112,6 +112,17 @@ jobs:
             exit 1
           fi
 
+          # Promotion replaces edison wholesale, so every commit edison gained
+          # after the sync branch was cut would silently vanish. Compare by
+          # patch-id (git cherry), which survives the rebase: a `+` line is an
+          # edison commit with no equivalent patch on upstream-sync.
+          missing="$(git cherry origin/upstream-sync origin/edison | grep '^+' | cut -d' ' -f2 || true)"
+          if [ -n "$missing" ]; then
+            echo "::error::edison has commits that upstream-sync does not carry; promoting would drop them. Re-run edison-upstream-watch.yml so the sync branch is rebuilt from the current edison, then re-run this workflow. Missing:" >&2
+            git log --no-walk --format='  %h %s' $missing >&2
+            exit 1
+          fi
+
           subject="$(git log -1 --format=%s "$head_sha")"
           if ! [[ "$subject" =~ ^chore\(edison\):\ rebase\ onto\ upstream\ ([0-9a-f]+)\ and\ re-pin\ reproducible\ sha$ ]]; then
             echo "::error::the tip commit of upstream-sync ('${subject}') does not match the re-pin commit subject edison-upstream-watch.yml produces. Refusing to promote a branch that was not published by that workflow." >&2
