@@ -138,18 +138,21 @@ jobs:
           latest="$(git tag -l 'v*-edison' --sort=-v:refname | head -1)"
           # shellcheck disable=SC1091
           source tools/edison-release-lib.sh
-          next="$(next_edison_tag "$latest")"
 
           # A re-run after a partial failure (edison pushed and tagged, but the
-          # PR not closed) finds the tag already there. When it points at the
-          # commit being promoted, that is our own earlier work: carry on and
-          # skip the tag push. Any other target means a foreign tag, refuse.
+          # PR not closed) sees the tag from that earlier run as `latest`. When
+          # it already points at the commit being promoted, that tag IS this
+          # promotion's release: reuse it and skip the tag push, instead of
+          # minting the next version on the same commit. Otherwise bump, and
+          # refuse to touch a tag that already exists for any other reason.
           already_tagged=false
-          if git rev-parse -q --verify "refs/tags/${next}" >/dev/null 2>&1; then
-            if [ "$(git rev-parse "refs/tags/${next}^{commit}")" = "$HEAD_SHA" ]; then
-              echo "tag ${next} already points at ${HEAD_SHA}; a previous run tagged it, continuing."
-              already_tagged=true
-            else
+          if [ -n "$latest" ] && [ "$(git rev-parse "refs/tags/${latest}^{commit}")" = "$HEAD_SHA" ]; then
+            next="$latest"
+            already_tagged=true
+            echo "tag ${latest} already points at ${HEAD_SHA}; a previous run tagged it, continuing."
+          else
+            next="$(next_edison_tag "$latest")"
+            if git rev-parse -q --verify "refs/tags/${next}" >/dev/null 2>&1; then
               echo "::error::tag ${next} already exists and does not point at the commit being promoted — refusing to move it. Delete or advance the stale tag by hand first, then re-run this workflow." >&2
               exit 1
             fi
@@ -221,7 +224,11 @@ jobs:
           else
             echo "PR #${PR_NUMBER} is already ${state}; nothing to close."
           fi
-          git push origin --delete upstream-sync || echo "upstream-sync was already deleted."
+          if git ls-remote --exit-code --heads origin upstream-sync >/dev/null; then
+            git push origin --delete upstream-sync
+          else
+            echo "upstream-sync is already gone; nothing to delete."
+          fi
 
       - name: Report a failed promotion
         if: failure()
