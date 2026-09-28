@@ -230,10 +230,11 @@ jobs:
               cat /tmp/abi.txt
               printf '\n```\n'
             fi
-            printf '\nAfter merge:\n'
+            printf '\nTo promote:\n'
             printf '1. Review the ABI verdict above.\n'
-            printf '2. Merge — `edison-auto-tag.yml` tags the next minor release and the build workflow publishes it and opens the consumer pin PRs.\n'
-            printf '3. Run the dual-core regression suite in `evolution-pre-errata-scripts` against the released binary before merging the server pin PR.\n'
+            printf '2. Do NOT use the merge button: this PR is a rebased history of `edison`, and no GitHub merge strategy (merge commit, squash, or rebase and merge) can apply it correctly.\n'
+            printf '3. Run the **Edison fork — promote sync** workflow (Actions -> Run workflow). It replaces `edison` with this branch, tags the next minor release, and the tag build publishes the asset and opens the consumer pin PRs.\n'
+            printf '4. Run the dual-core regression suite in `evolution-pre-errata-scripts` against the released binary before merging the server pin PR.\n'
           } > /tmp/pr-body.md
 
           gh pr create --base edison --head upstream-sync \
