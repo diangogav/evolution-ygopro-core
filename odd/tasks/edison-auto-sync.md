@@ -98,6 +98,13 @@ Out of scope: auto-merging any PR; changing consumer repos; touching core C++.
 ## Delivery
 Strategy: ask-on-risk. Forecast ~350 authored changed lines.
 
+## Runs (continued)
+- 2026-09-28: promote-sync gained a dropped-commits guard (dcdc650, 7e1e71e;
+  reviewed, approved, burned). Watch run 36449069672 rebuilt upstream-sync
+  from edison 7e1e71e: PR #1 head b908811, 0 edison commits missing, upstream
+  ancestor ok, ABI identical to v1.1.0-edison, next tag v1.2.0-edison.
+  Rule: re-run the watch after any push to edison and before promoting.
+
 ## Next step
 Human gate 1 on PR #1 (upstream ed031ac, ABI identical to v1.1.0-edison):
 run the "Edison fork — promote sync" workflow. It replaces `edison`, tags
