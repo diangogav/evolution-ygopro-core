@@ -14,6 +14,15 @@ on:
     types: [closed]
     branches: [edison]
 
+# gh, run inside a fork, resolves the PARENT repository (purerosefallen/
+# ygopro-core) as its default for pr, issue, release and workflow commands.
+# Neither token has write access there, which surfaced as "Resource not
+# accessible" on createIssue/createPullRequest and as `gh release list`
+# finding no v*-edison tag. GH_REPO pins every gh call to this repository;
+# commands that pass --repo explicitly (the consumer bumps) still win.
+env:
+  GH_REPO: ${{ github.repository }}
+
 permissions:
   contents: write
   actions: write

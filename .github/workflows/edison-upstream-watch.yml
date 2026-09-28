@@ -23,6 +23,15 @@ on:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   workflow_dispatch:
 
+# gh, run inside a fork, resolves the PARENT repository (purerosefallen/
+# ygopro-core) as its default for pr, issue, release and workflow commands.
+# Neither token has write access there, which surfaced as "Resource not
+# accessible" on createIssue/createPullRequest and as `gh release list`
+# finding no v*-edison tag. GH_REPO pins every gh call to this repository;
+# commands that pass --repo explicitly (the consumer bumps) still win.
+env:
+  GH_REPO: ${{ github.repository }}
+
 permissions:
   contents: write
   pull-requests: write
@@ -200,8 +209,10 @@ jobs:
       - name: Open or update the sync PR
         if: steps.publish.outputs.published == 'true'
         env:
-          # A PR opened with GITHUB_TOKEN raises no pull_request event, so the
-          # build check would never run on it. The PAT makes it a normal PR.
+          # The PAT is required here: this repository keeps "Allow GitHub
+          # Actions to create and approve pull requests" off, and a PR opened
+          # with GITHUB_TOKEN would raise no pull_request event anyway, so the
+          # build check would never run on it.
           GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
         run: |
           set -euo pipefail
