@@ -116,7 +116,11 @@ jobs:
           # after the sync branch was cut would silently vanish. Compare by
           # patch-id (git cherry), which survives the rebase: a `+` line is an
           # edison commit with no equivalent patch on upstream-sync.
-          missing="$(git cherry origin/upstream-sync origin/edison | grep '^+' | cut -d' ' -f2 || true)"
+          # git cherry runs on its own so a failure of the comparison itself
+          # aborts (set -e) instead of reading as "nothing missing"; only
+          # grep's no-match exit is tolerated.
+          cherry="$(git cherry origin/upstream-sync origin/edison)"
+          missing="$(grep '^+' <<<"$cherry" | cut -d' ' -f2 || true)"
           if [ -n "$missing" ]; then
             echo "::error::edison has commits that upstream-sync does not carry; promoting would drop them. Re-run edison-upstream-watch.yml so the sync branch is rebuilt from the current edison, then re-run this workflow. Missing:" >&2
             git log --no-walk --format='  %h %s' $missing >&2
