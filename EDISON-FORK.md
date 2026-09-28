@@ -164,7 +164,7 @@ generated against. So three things move as one pinned triple:
 
 | ygopro-core base | koishipro-core.js | emscripten |
 |---|---|---|
-| `25eb27f` | `1.5.2` | `3.1.7` |
+| `ed031ac` | `1.5.2` | `3.1.7` |
 
 **When taking an upstream update:**
 - **ABI-compatible change** (gameplay logic only — no `ocgapi.*` / struct /
