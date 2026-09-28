@@ -57,8 +57,9 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           # The push steps below need the PAT: only a PAT-authored push
-          # raises the push event edison-build.yml listens for.
-          token: ${{ secrets.UPSTREAM_SYNC_TOKEN || github.token }}
+          # raises the push event edison-build.yml listens for. The first
+          # step already failed if it is unset, so there is no fallback.
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
 
       - name: Resolve the sync PR
         id: resolve
@@ -130,6 +131,8 @@ jobs:
 
       - name: Compute the next release tag
         id: version
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
         run: |
           set -euo pipefail
           latest="$(git tag -l 'v*-edison' --sort=-v:refname | head -1)"
@@ -137,20 +140,36 @@ jobs:
           source tools/edison-release-lib.sh
           next="$(next_edison_tag "$latest")"
 
+          # A re-run after a partial failure (edison pushed and tagged, but the
+          # PR not closed) finds the tag already there. When it points at the
+          # commit being promoted, that is our own earlier work: carry on and
+          # skip the tag push. Any other target means a foreign tag, refuse.
+          already_tagged=false
           if git rev-parse -q --verify "refs/tags/${next}" >/dev/null 2>&1; then
-            echo "::error::tag ${next} already exists — refusing to move it. If this promotion genuinely needs a new release, delete or advance the stale tag by hand first, then re-run this workflow." >&2
-            exit 1
+            if [ "$(git rev-parse "refs/tags/${next}^{commit}")" = "$HEAD_SHA" ]; then
+              echo "tag ${next} already points at ${HEAD_SHA}; a previous run tagged it, continuing."
+              already_tagged=true
+            else
+              echo "::error::tag ${next} already exists and does not point at the commit being promoted — refusing to move it. Delete or advance the stale tag by hand first, then re-run this workflow." >&2
+              exit 1
+            fi
           fi
 
           echo "latest=$latest" >> "$GITHUB_OUTPUT"
           echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "already_tagged=$already_tagged" >> "$GITHUB_OUTPUT"
 
       - name: Promote upstream-sync to edison
         id: promote
         env:
           OLD_EDISON: ${{ steps.resolve.outputs.old_edison }}
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
         run: |
           set -euo pipefail
+          if [ "$OLD_EDISON" = "$HEAD_SHA" ]; then
+            echo "edison is already at ${HEAD_SHA}; a previous run promoted it, continuing."
+            exit 0
+          fi
           # force-with-lease refuses if edison moved since old_edison was
           # read above, instead of blindly overwriting someone else's push.
           # Pushed with the PAT (checked out above), this raises the push
@@ -160,6 +179,7 @@ jobs:
 
       - name: Tag and publish the release
         id: tag
+        if: steps.version.outputs.already_tagged != 'true'
         env:
           NEXT: ${{ steps.version.outputs.next }}
           HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
@@ -190,7 +210,18 @@ jobs:
           body="$(printf 'Promoted: `edison` is now at `%s` (was `%s`), tagged `%s`. The tag build publishes the release and opens the consumer pin PRs.\n' \
             "$HEAD_SHA" "$OLD_EDISON" "$NEXT")"
           gh pr comment "$PR_NUMBER" --body "$body"
-          gh pr close "$PR_NUMBER" --delete-branch
+
+          # Once edison points at the PR's head, GitHub marks the PR merged on
+          # its own, and `gh pr close` refuses a merged PR. Close only when it
+          # is still open; either way, drop the sync branch (the watch
+          # recreates it next time upstream moves).
+          state="$(gh pr view "$PR_NUMBER" --json state --jq .state)"
+          if [ "$state" = "OPEN" ]; then
+            gh pr close "$PR_NUMBER"
+          else
+            echo "PR #${PR_NUMBER} is already ${state}; nothing to close."
+          fi
+          git push origin --delete upstream-sync || echo "upstream-sync was already deleted."
 
       - name: Report a failed promotion
         if: failure()
