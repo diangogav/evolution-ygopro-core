@@ -99,9 +99,11 @@ Out of scope: auto-merging any PR; changing consumer repos; touching core C++.
 Strategy: ask-on-risk. Forecast ~350 authored changed lines.
 
 ## Next step
-User: create a PAT (repo + workflow), store it as `UPSTREAM_SYNC_TOKEN` and
-`CONSUMER_PIN_TOKEN`, merge `ci/edison-auto-sync` into `edison`, then dispatch
-`edison-upstream-watch.yml` once to exercise the chain.
+Human gate 1 on PR #1 (upstream ed031ac, ABI identical to v1.1.0-edison):
+run the "Edison fork — promote sync" workflow. It replaces `edison`, tags
+v1.2.0-edison, and the tag build publishes the release and opens the pin PRs.
+Then gate 2: dual-core suite in evolution-pre-errata-scripts, merge the
+server pin PR. The promote workflow itself is not yet exercised.
 
 ## Runs
 - 2026-09-28 run 36431769566: rebase, CI build, re-pin (sha 60f57217…) and
@@ -119,6 +121,13 @@ User: create a PAT (repo + workflow), store it as `UPSTREAM_SYNC_TOKEN` and
   so `gh pr close` failed, and a re-run after the tag push refused on
   "tag exists". Remaining follow-ups: the provenance gate is only a commit
   subject regex; anyone with write access can push a matching branch.
+- 2026-09-28: reviews on 84c94ed (lineage review-5cf61339a411f0d5) and e8ecaee
+  (lineage after cf797d1), both approved, acknowledged and burned. 84c94ed's
+  reviewer caught that a re-run would mint a second tag on the same commit;
+  fixed in e8ecaee (reuse `latest` when it points at the promoted commit).
+  Follow-up: the `git ls-remote --exit-code` guard treats a transport failure
+  (exit 128) like "no such branch" (exit 2); harmless because the watch
+  force-recreates the branch, but worth tightening.
 - 2026-09-26: native review (lineage review-8e994b31f2323500) on edison..e8eea94,
   tier high, consent granted by the user, four lenses captured, state
   approved, acknowledged and burned. 21 advisory non-blocking findings; the
