@@ -53,14 +53,24 @@ gates — merging the sync PR here, and merging the pin PR on the server:
    `wasm_abi_signature`/`wasm_abi_diff`) against the currently released asset,
    and puts the verdict in the PR body. Conflicted or unpublishable, it opens
    an issue with the manual recipe instead. It never passes silently.
-3. **Sync PR — human gate 1.** Review the ABI verdict, then merge.
-4. **Auto-tag** (`edison-auto-tag.yml`) fires on that merge: it computes the
-   next release tag and pushes it on the merge commit.
-5. **Build + release** (`edison-build.yml`) is dispatched by the auto-tag
-   workflow (a tag pushed with `GITHUB_TOKEN` does not trigger its own
-   `on.push.tags` workflow, so the auto-tag job calls `gh workflow run`
-   explicitly). It rebuilds, publishes the release asset, and opens the
-   consumer pin-bump PRs.
+3. **Sync PR — human gate 1.** Review the ABI verdict, then **do not use the
+   merge button.** The sync PR is a rebased history of `edison`'s feature
+   stack, not an ordinary feature branch: a merge commit would stop `edison`
+   being a clean rebased stack, and "rebase and merge" would replay every
+   commit on the PR — including upstream's own — on top of `edison`,
+   duplicating history already there. Instead, run the **Edison fork —
+   promote sync** workflow (`edison-promote-sync.yml`, `workflow_dispatch`
+   from the Actions tab). Running it is the human gate; there is nothing to
+   click on the PR itself.
+4. **Promote** (`edison-promote-sync.yml`) verifies the sync PR is exactly
+   what the watch published and still sits on the current upstream tip, then
+   force-with-lease pushes `upstream-sync` onto `edison`, computes and tags
+   the next minor release on that commit, and closes the PR.
+5. **Build + release** (`edison-build.yml`) is triggered directly by the
+   promote workflow's PAT-authored push of `edison` and of the release tag —
+   a `GITHUB_TOKEN` push would not raise that event, which is why the promote
+   workflow needs `UPSTREAM_SYNC_TOKEN`. It rebuilds, publishes the release
+   asset, and opens the consumer pin-bump PRs.
 6. **Pin PR on the server — human gate 2.** Before merging it, run the
    **dual-core regression suite** in `evolution-pre-errata-scripts`
    (`bash test/setup-test-resources.sh && npx jest`) against the released
@@ -96,17 +106,29 @@ Tagging `vX.Y.Z-edison` publishes the release asset and opens the pin-bump
 PRs on the consumers — run the dual-core regression suite above before
 merging those.
 
+If a sync PR already exists and only the promote step needs to run by hand
+(e.g. `edison-promote-sync.yml` itself failed partway through — check which
+steps it reports as already completed before re-running any of this):
+
+```bash
+git fetch origin upstream-sync
+git push --force-with-lease origin origin/upstream-sync:edison
+git tag <next> <sha>   # <next> from next_edison_tag; <sha> is upstream-sync's tip
+git push origin <next>
+```
+
 ### Automation secrets
 
-Both are optional. Without them nothing breaks: each workflow degrades to
-reporting what a human should run. With them, the paperwork disappears.
-`edison-auto-tag.yml` needs neither — tagging and dispatching a workflow on
-this same repo only needs the default `GITHUB_TOKEN`, already granted through
-its `permissions` block.
+Without them nothing breaks: each workflow degrades to reporting what a
+human should run. With them, the paperwork disappears. `UPSTREAM_SYNC_TOKEN`
+cannot degrade for the promote workflow specifically — it stops before
+pushing, tagging, or closing anything, and says so, when the secret is unset,
+because only a PAT-authored push raises the event that triggers the release
+build.
 
 | Secret | Needed for | Scope |
 |---|---|---|
-| `UPSTREAM_SYNC_TOKEN` | publishing the weekly sync branch | `workflow` on this repo |
+| `UPSTREAM_SYNC_TOKEN` | publishing the weekly sync branch; promoting it to `edison` and tagging | `workflow` on this repo |
 | `CONSUMER_PIN_TOKEN` | the pin-bump PRs on release | write on the two consumer repos |
 
 `UPSTREAM_SYNC_TOKEN` exists because an upstream delta regularly touches
