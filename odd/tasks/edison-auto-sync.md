@@ -112,6 +112,13 @@ User: create a PAT (repo + workflow), store it as `UPSTREAM_SYNC_TOKEN` and
   identical to v1.1.0-edison, same sha as the previous run (reproducible).
 
 ## Review evidence
+- 2026-09-28: native review (lineage review-7fa7fb7cec0c44c1) on
+  904c2cd..bd97769, tier high, consent granted, four lenses, approved,
+  acknowledged and burned. 12 advisory findings; two were happy-path breakers
+  fixed in 84c94ed: GitHub auto-marks the sync PR merged after the force-push
+  so `gh pr close` failed, and a re-run after the tag push refused on
+  "tag exists". Remaining follow-ups: the provenance gate is only a commit
+  subject regex; anyone with write access can push a matching branch.
 - 2026-09-26: native review (lineage review-8e994b31f2323500) on edison..e8eea94,
   tier high, consent granted by the user, four lenses captured, state
   approved, acknowledged and burned. 21 advisory non-blocking findings; the
