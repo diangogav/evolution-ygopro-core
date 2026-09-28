@@ -58,11 +58,13 @@ Out of scope: auto-merging any PR; changing consumer repos; touching core C++.
       and can never be merged by GitHub's buttons (PR #1: CONFLICTING on the
       two pin files; "Rebase and merge" would replay upstream commits on top
       of the feature stack), so `pull_request closed && merged` never fires.
-- [ ] T7 Replace auto-tag with `edison-promote-sync.yml` (workflow_dispatch):
+- [x] T7 Replace auto-tag with `edison-promote-sync.yml` (workflow_dispatch):
       verify the open sync PR, force-with-lease `upstream-sync` onto `edison`
       with the PAT, tag the next minor, push the tag (PAT push triggers the
       tag build), close the PR. Update the watch PR body, EDISON-FORK.md and
-      the build comment. Route: delegated writer.
+      the build comment. Route: delegated writer. Evidence: dd1881e, 6733c94;
+      YAML parses, `bash -n` on all 7 run blocks OK, auto-tag removed.
+      Not exercised: the promotion itself (the user's gate on PR #1).
 - [x] T5 `EDISON-FORK.md` docs update. Route: delegated writer. Evidence: e987710.
 - [x] T6 Spot check. Route: inline. Evidence: `npx jest test/tools` re-run by
       the orchestrator: 7 passed. Review found three gaps, fixed in 7988db0:
