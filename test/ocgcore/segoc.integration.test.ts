@@ -28,8 +28,16 @@
  *   VANILLA_PAD  549481   Lv4 vanilla normal monster (deck padding)
  */
 
-import { IdleCmdType, YGOProMsgChaining, YGOProMsgSelectIdleCmd } from "ygopro-msg-encode";
-import type { YGOProMsgBase } from "ygopro-msg-encode";
+import * as fs from "fs";
+import * as path from "path";
+import {
+	IdleCmdType,
+	YGOProMsgChaining,
+	YGOProMsgSelectChain,
+	YGOProMsgSelectEffectYn,
+	YGOProMsgSelectIdleCmd,
+} from "ygopro-msg-encode";
+import type { YGOProMsgBase, YGOProMsgResponseBase } from "ygopro-msg-encode";
 import { HeadlessDuel } from "./headless-duel";
 import { FIXED_SEED, buildDeck } from "./test-fixtures";
 
@@ -222,5 +230,93 @@ describe("SEGOC — simultaneous TRIGGER_F effects from both Sangans (Edison/MR1
 				(p1Chaining as YGOProMsgChaining).chainCount,
 			);
 		});
+	});
+});
+
+// ---------------------------------------------------------------------------
+// TCG SEGOC — non-public trigger effects (DUEL_TCG_SEGOC_NONPUBLIC)
+//
+// OCG (default): Trigger Effects activating from a non-public location (hand,
+// Deck, face-down) sit in a lower priority level and are only offered after
+// the public simultaneous triggers have been placed on the chain.
+// TCG (flag on): they share the same priority level and join SEGOC together
+// with the public triggers.
+//
+// Scenario (the documented Goblindberg + Kagetokage example):
+//   - P0 Normal Summons Goblindberg (Lv4) with Kagetokage in hand.
+//   - Goblindberg's optional trigger is public (on the field).
+//   - Kagetokage's optional trigger activates from the hand (non-public).
+// ---------------------------------------------------------------------------
+const GOBLINDBERG = 25259669; // Lv4 — TRIGGER_O on Normal Summon: Special Summon Lv4 or lower from hand
+const KAGETOKAGE = 94656263; // TRIGGER_O from hand when you Normal Summon a Lv4 monster
+const DUEL_TCG_SEGOC_NONPUBLIC = 0x200;
+
+const FORK_WASM =
+	process.env.OCGCORE_WASM ?? path.join(__dirname, "wasm", "libocgcore-edison-fork.wasm");
+
+/**
+ * Normal Summon Goblindberg on T1 and return the card codes offered by every
+ * trigger prompt (SelectEffectYn / non-empty SelectChain) until the next idle
+ * command.
+ * Every prompt is declined by the built-in auto-responder.
+ */
+async function triggerPromptsAfterGoblindbergSummon(extraFlags: number): Promise<number[][]> {
+	const prompts: number[][] = [];
+	const duel = await HeadlessDuel.create({
+		decks: [{ main: buildDeck([GOBLINDBERG, KAGETOKAGE]) }, { main: buildDeck([]) }],
+		duelRule: 5,
+		seed: FIXED_SEED,
+		wasmPath: FORK_WASM,
+		extraFlags,
+		autoResponder: (msg: YGOProMsgResponseBase) => {
+			if (msg instanceof YGOProMsgSelectChain && msg.chains.length > 0) {
+				prompts.push(msg.chains.map((c) => c.code));
+			} else if (msg instanceof YGOProMsgSelectEffectYn) {
+				prompts.push([msg.code]);
+			}
+			return undefined;
+		},
+	});
+	try {
+		const idle = (await duel.advanceUntil(YGOProMsgSelectIdleCmd)).targetMessage;
+		const card = idle.summonableCards.find((c) => c.code === GOBLINDBERG);
+		if (!card) {
+			throw new Error("Goblindberg is not summonable on T1.");
+		}
+		duel.setResponse(
+			idle.prepareResponse(IdleCmdType.SUMMON, {
+				code: card.code,
+				controller: card.controller,
+				location: card.location,
+				sequence: card.sequence,
+			}),
+		);
+		await duel.advanceUntil(YGOProMsgSelectIdleCmd);
+		return prompts;
+	} finally {
+		await duel.cleanup();
+	}
+}
+
+describe("TCG SEGOC — non-public triggers (DUEL_TCG_SEGOC_NONPUBLIC)", () => {
+	beforeAll(() => {
+		if (!fs.existsSync(FORK_WASM)) {
+			throw new Error(`Edison fork WASM not found at ${FORK_WASM}.`);
+		}
+	});
+
+	it("default (OCG): the hand trigger is offered only after the public trigger, in a separate prompt", async () => {
+		const prompts = await triggerPromptsAfterGoblindbergSummon(0);
+
+		expect(prompts[0]).toEqual([GOBLINDBERG]);
+		expect(prompts.slice(1)).toContainEqual([KAGETOKAGE]);
+	});
+
+	it("flag on (TCG): the hand trigger joins SEGOC in the same prompt as the public trigger", async () => {
+		const prompts = await triggerPromptsAfterGoblindbergSummon(DUEL_TCG_SEGOC_NONPUBLIC);
+
+		expect(prompts[0]).toHaveLength(2);
+		expect(prompts[0]).toEqual(expect.arrayContaining([GOBLINDBERG, KAGETOKAGE]));
+		expect(prompts.slice(1).flat()).not.toContain(KAGETOKAGE);
 	});
 });
