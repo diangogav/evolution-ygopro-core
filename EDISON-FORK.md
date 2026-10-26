@@ -2,7 +2,8 @@
 
 A maintained fork of [`purerosefallen/ygopro-core`](https://github.com/purerosefallen/ygopro-core)
 that restores four 2010/Edison (MR1) rulings the modern engine no longer
-applies. It builds the WASM core used by the Evolution server's Edison rooms.
+applies and adds an opt-in TCG ruling option. It builds the WASM core used by
+the Evolution server's Edison rooms.
 
 ## What this fork adds
 
@@ -17,9 +18,17 @@ this single fork for every format instead of swapping cores per duel.
 | 0-ATK mutual destruction | Edison #13 | `duel_rule <= 1` | `processor.cpp` |
 | LP cost cannot pay to 0 | Edison #10 | `duel_rule <= 1` | `field.cpp` |
 | `EFFECT_EXTRA_RELEASE_OPT` (Soul Exchange pre-errata) | — | additive effect code | `effect.h`, `field.cpp` |
+| TCG SEGOC for non-public triggers | TCG SEGOC | `DUEL_TCG_SEGOC_NONPUBLIC` (`0x200`) duel option | `common.h`, `field.cpp`, `processor.cpp` |
 
 The additive effect code (10159) is only used by pre-errata card scripts, so
 cards on the stock effect codes behave identically.
+
+`DUEL_TCG_SEGOC_NONPUBLIC` is off by default, so duels that do not pass it keep
+the OCG ruling: Trigger Effects activating from a non-public location (hand,
+Deck, face-down) are offered only after the public simultaneous triggers. With
+the option on, they join SEGOC on the same priority level as the public ones,
+as in the TCG. It is passed in the low 16 bits of the `start_duel` options,
+like the other `DUEL_*` flags in `common.h`.
 
 ## Branch model
 
