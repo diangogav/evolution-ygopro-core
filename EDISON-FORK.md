@@ -1,14 +1,26 @@
-# Edison ocgcore fork
+# Evolution era-rulings ocgcore fork
 
 A maintained fork of [`purerosefallen/ygopro-core`](https://github.com/purerosefallen/ygopro-core)
-that restores four 2010/Edison (MR1) rulings the modern engine no longer
-applies and adds an opt-in TCG ruling option. It builds the WASM core used by
-the Evolution server's Edison rooms.
+that restores the rulings of the retro formats Evolution serves and adds opt-in
+ruling options the modern engine lacks:
+
+- **Edison (TCG, March 2010, MR1)** — four rulings gated by `duel_rule <= 1`.
+- **Goat Format (TCG, 2005)** — three rulings behind the `DUEL_GOAT_2005` duel option.
+- **TCG SEGOC** — non-public triggers join SEGOC, behind `DUEL_TCG_SEGOC_NONPUBLIC`
+  (proposed upstream in Fluorohydride/ygopro-core#870).
+
+It builds the single WASM core the Evolution server runs for every format.
+"Edison" in the file, branch, artifact and tag names (`edison` branch,
+`libocgcore-edison-fork.wasm`, `vX.Y.Z-edison`, `tools/build-edison.sh`) is the
+historical name from when the fork only served Edison rooms; the release
+automation and the server manifest pin depend on it, so it stays until a
+coordinated rename.
 
 ## What this fork adds
 
-Three of the four features are **gated by `duel_rule <= 1`**, so modern duels
-(`duel_rule >= 2`) are **bit-for-bit identical to upstream** — the whole ocgcore
+The Edison rule restorations are **gated by `duel_rule <= 1`** and the ruling
+options are off unless a room passes them, so modern duels (`duel_rule >= 2`,
+no options) are **bit-for-bit identical to upstream** — the whole ocgcore
 regression suite passes green on both binaries. That is what lets the server run
 this single fork for every format instead of swapping cores per duel.
 
@@ -19,6 +31,7 @@ this single fork for every format instead of swapping cores per duel.
 | LP cost cannot pay to 0 | Edison #10 | `duel_rule <= 1` | `field.cpp` |
 | `EFFECT_EXTRA_RELEASE_OPT` (Soul Exchange pre-errata) | — | additive effect code | `effect.h`, `field.cpp` |
 | TCG SEGOC for non-public triggers | TCG SEGOC | `DUEL_TCG_SEGOC_NONPUBLIC` (`0x200`) duel option | `common.h`, `field.cpp`, `processor.cpp` |
+| Goat Format 2005 era rulings (ATK/DEF modifiers during damage calculation, response window after the hand-size discard) | Goat #10A, #19 | `DUEL_GOAT_2005` (`0x400`) duel option | `common.h`, `effect.h`, `effect.cpp`, `processor.cpp` |
 
 The additive effect code (10159) is only used by pre-errata card scripts, so
 cards on the stock effect codes behave identically.
@@ -29,6 +42,26 @@ Deck, face-down) are offered only after the public simultaneous triggers. With
 the option on, they join SEGOC on the same priority level as the public ones,
 as in the TCG. It is passed in the low 16 bits of the `start_duel` options,
 like the other `DUEL_*` flags in `common.h`.
+
+`DUEL_GOAT_2005` is off by default and restores two Goat Format (TCG, 2005)
+rulings documented at goatformat.com/basics.html. It is meant for rooms that
+already run `duel_rule = 1`; both gates read only the option, so a modern duel
+that does not pass it is untouched:
+
+- **#10A** — during damage calculation (`PHASE_DAMAGE_CAL`) the effects that
+  scripts mark with `EFFECT_FLAG_DAMAGE_STEP` (ATK/DEF modifiers such as Rush
+  Recklessly) stay activatable. Modern rules only admit effects carrying
+  `EFFECT_FLAG_DAMAGE_CAL` there (`effect::is_damage_cal_available`).
+- **#10B** (one chain per Damage Step timing) needs no gate: every Damage Step
+  point event enters with `skip_new`, so the chain-end re-entry already skips
+  the free-chain window in the same timing. `goat-damage-step-chains` pins
+  that the window after `MSG_CHAIN_END` offers nothing, with and without the
+  option.
+- **#19** — players may respond to the end-of-turn hand-size discard: the
+  free-chain window stays open after it (`field::process_point_event`, step 9,
+  which the stock core skips while `core.hand_adjusted` is set). Without the
+  option the core keeps the 2010 behavior: only a mandatory trigger caused by
+  the discard may start a chain, which is what Edison needs.
 
 ## Branch model
 

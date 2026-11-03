@@ -23,7 +23,7 @@ set -euo pipefail
 EDISON_REPIN="${EDISON_REPIN:-}"
 EDISON_SHA_OUT="${EDISON_SHA_OUT:-}"
 
-EXPECTED_SHA="0d48a8c22bf20008fba296600bdd1dc3ea8ab66c428bc89c172941bed0232e6d"
+EXPECTED_SHA="7e8b53da623ddffc18711041fa69ad568fc6ca185abc56477568992ee66dbe73"
 EMSDK_IMAGE="emscripten/emsdk:3.1.7"   # ABI-compatible with koishipro-core.js 1.5.2 JS glue
 LUA_VERSION="5.4.8"
 
