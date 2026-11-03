@@ -62,6 +62,15 @@ Fix (C++, `field.cpp` `field::check_lp_cost`): the final payability check
 strict `if(val < player[playerid].lp)`. Both the can-activate check
 (`must_pay == 0`) and actual payment flow through this method.
 
+### 5. `DUEL_TCG_SEGOC_NONPUBLIC` (`0x200`) and `DUEL_GOAT_2005` (`0x400`) — duel options
+
+Opt-in rulings passed in the low 16 bits of the `start_duel` options, off by
+default. `DUEL_GOAT_2005` restores two Goat Format (TCG, 2005) rulings from
+goatformat.com/basics.html: ATK/DEF modifiers flagged `EFFECT_FLAG_DAMAGE_STEP`
+stay activatable during damage calculation (#10A), and the free-chain window
+stays open after the End Phase hand-size discard (#19). See `EDISON-FORK.md`
+for both options; `goat-*.integration.test.ts` pin them differentially.
+
 ## Provenance
 
 - Source: `purerosefallen/ygopro-core` @ `973672d` (master), the repo the

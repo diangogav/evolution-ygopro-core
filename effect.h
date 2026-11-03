@@ -81,6 +81,7 @@ public:
 	int32_t is_single_ready();
 	int32_t check_count_limit(uint8_t playerid);
 	int32_t get_required_handorset_effects(effect_set* eset, uint8_t playerid, const tevent& e, int32_t neglect_loc = FALSE);
+	bool is_damage_cal_available() const;
 	int32_t is_activateable(uint8_t playerid, const tevent &e, int32_t neglect_cond = FALSE, int32_t neglect_cost = FALSE, int32_t neglect_target = FALSE, int32_t neglect_loc = FALSE, int32_t neglect_faceup = FALSE);
 	int32_t is_action_check(uint8_t playerid);
 	int32_t is_activate_ready(effect* reason_effect, uint8_t playerid, const tevent& e, int32_t neglect_cond = FALSE, int32_t neglect_cost = FALSE, int32_t neglect_target = FALSE);

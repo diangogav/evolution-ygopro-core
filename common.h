@@ -447,6 +447,7 @@ enum LuaParamType : int32_t {
 #define DUEL_RETURN_DECK_TOP	0x80
 #define DUEL_REVEAL_DECK_SEQ	0x100
 #define DUEL_TCG_SEGOC_NONPUBLIC	0x200	//TCG: non-public trigger effects join SEGOC
+#define DUEL_GOAT_2005			0x400	//Goat Format: 2005 TCG era rulings (goatformat.com basics #10A, #19)
 
 //Activity
 #define ACTIVITY_SUMMON			1

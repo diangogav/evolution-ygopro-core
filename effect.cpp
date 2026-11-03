@@ -241,6 +241,15 @@ int32_t effect::get_required_handorset_effects(effect_set* eset, uint8_t playeri
 	pduel->game_field->restore_lp_cost();
 	return available;
 }
+// Goat Format (DUEL_GOAT_2005, goatformat.com basics #10A): during damage
+// calculation the players may still activate effects that alter ATK/DEF, which
+// scripts mark with EFFECT_FLAG_DAMAGE_STEP. Modern rules only admit effects
+// that explicitly carry EFFECT_FLAG_DAMAGE_CAL there.
+bool effect::is_damage_cal_available() const {
+	if(is_flag(EFFECT_FLAG_DAMAGE_CAL))
+		return true;
+	return (pduel->game_field->core.duel_options & DUEL_GOAT_2005) && is_flag(EFFECT_FLAG_DAMAGE_STEP);
+}
 // check if an EFFECT_TYPE_ACTIONS effect can be activated
 // for triggering effects, it checks EFFECT_FLAG_DAMAGE_STEP, EFFECT_FLAG_SET_AVAILABLE
 int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target, int32_t neglect_loc, int32_t neglect_faceup) {
@@ -258,7 +267,7 @@ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t negle
 				if((code < 1132 || code > 1149) && pduel->game_field->infos.phase == PHASE_DAMAGE && !is_flag(EFFECT_FLAG_DAMAGE_STEP)
 					&& !pduel->game_field->get_cteffect(this, playerid, FALSE))
 					return FALSE;
-				if((code < 1134 || code > 1136) && pduel->game_field->infos.phase == PHASE_DAMAGE_CAL && !is_flag(EFFECT_FLAG_DAMAGE_CAL)
+				if((code < 1134 || code > 1136) && pduel->game_field->infos.phase == PHASE_DAMAGE_CAL && !is_damage_cal_available()
 					&& !pduel->game_field->get_cteffect(this, playerid, FALSE))
 					return FALSE;
 			}
@@ -316,7 +325,7 @@ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t negle
 			if(!(type & (EFFECT_TYPE_FLIP | EFFECT_TYPE_TRIGGER_F)) && !((type & EFFECT_TYPE_TRIGGER_O) && (type & EFFECT_TYPE_SINGLE))) {
 				if((code < 1132 || code > 1149) && pduel->game_field->infos.phase == PHASE_DAMAGE && !is_flag(EFFECT_FLAG_DAMAGE_STEP))
 					return FALSE;
-				if((code < 1134 || code > 1136) && pduel->game_field->infos.phase == PHASE_DAMAGE_CAL && !is_flag(EFFECT_FLAG_DAMAGE_CAL))
+				if((code < 1134 || code > 1136) && pduel->game_field->infos.phase == PHASE_DAMAGE_CAL && !is_damage_cal_available())
 					return FALSE;
 			}
 			if(phandler->current.location == LOCATION_OVERLAY)

@@ -1490,7 +1490,9 @@ int32_t field::process_point_event(int16_t step, int32_t skip_trigger, int32_t s
 		infos.priorities[0] = 0;
 		infos.priorities[1] = 0;
 		if(core.current_chain.size() == 0) {
-			if(!core.hand_adjusted)
+			// Goat Format (DUEL_GOAT_2005, basics #19): players may respond to the
+			// end-of-turn discard, so the free-chain window stays open after it.
+			if(!core.hand_adjusted || (core.duel_options & DUEL_GOAT_2005))
 				add_process(PROCESSOR_QUICK_EFFECT, 0, 0, 0, skip_freechain, infos.turn_player);
 		} else
 			add_process(PROCESSOR_QUICK_EFFECT, 0, 0, 0, FALSE, 1 - core.current_chain.back().triggering_player);
@@ -4145,7 +4147,7 @@ int32_t field::add_chain(uint16_t step) {
 		effect* peffect = clit.triggering_effect;
 		if(get_cteffect(peffect, playerid, TRUE)) {
 			const bool damage_step = infos.phase == PHASE_DAMAGE && !peffect->is_flag(EFFECT_FLAG_DAMAGE_STEP);
-			const bool damage_cal = infos.phase == PHASE_DAMAGE_CAL && !peffect->is_flag(EFFECT_FLAG_DAMAGE_CAL);
+			const bool damage_cal = infos.phase == PHASE_DAMAGE_CAL && !peffect->is_damage_cal_available();
 			if(damage_step || damage_cal) {
 				returns.ivalue[0] = TRUE;
 				return FALSE;
