@@ -61,7 +61,10 @@ that does not pass it is untouched:
   free-chain window stays open after it (`field::process_point_event`, step 9,
   which the stock core skips while `core.hand_adjusted` is set). Without the
   option the core keeps the 2010 behavior: only a mandatory trigger caused by
-  the discard may start a chain, which is what Edison needs.
+  the discard may start a chain, which is what Edison needs. Every card offered
+  in that window is reported as fitting the timing (`spe_count`, the same rule
+  the stock core applies to attack declarations), so clients prompt by default
+  instead of auto-passing cards without a hint timing such as Jar of Greed.
 
 ## Branch model
 
