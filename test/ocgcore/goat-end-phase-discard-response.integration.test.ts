@@ -62,6 +62,8 @@ interface Observation {
 	kind: "SelectChain" | "Chaining";
 	player?: number;
 	codes: number[];
+	/** Cards the core flags as fitting this timing (clients prompt by default only when > 0). */
+	special?: number;
 }
 
 interface Result {
@@ -115,7 +117,7 @@ async function runScenario(opts: { extraFlags: number; discardCode: number }): P
 				}
 			}
 			if (msg instanceof YGOProMsgSelectChain && discardSeen) {
-				afterDiscard.push({ kind: "SelectChain", player: msg.player, codes: msg.chains.map((c) => c.code) });
+				afterDiscard.push({ kind: "SelectChain", player: msg.player, codes: msg.chains.map((c) => c.code), special: msg.specialCount });
 				return msg.defaultResponse();
 			}
 			return undefined;
@@ -170,6 +172,16 @@ describe("Goat rule #19 — response window after the hand-size discard (fork, d
 			expect(p0Offers(r).some((codes) => codes.includes(JAR_OF_GREED))).toBe(true);
 			// Forced Requisition activates on EVENT_DISCARD; the discard event is still live.
 			expect(p0Offers(r).some((codes) => codes.includes(FORCED_REQUISITION))).toBe(true);
+		});
+
+		it("with DUEL_GOAT_2005: every card offered after the discard counts as fitting the timing, so clients prompt by default", async () => {
+			// Jar of Greed declares no hint timing; in a plain End Phase window the
+			// core reports it as not fitting (special 0) and clients auto-pass.
+			// Responding to the discard is a Goat play, so that window is special.
+			const r = await runScenario({ extraFlags: DUEL_GOAT_2005, discardCode: VANILLA_PAD });
+			const windows = r.afterDiscard.filter((o) => o.kind === "SelectChain" && o.player === 0 && o.codes.includes(JAR_OF_GREED));
+			expect(windows.length).toBeGreaterThan(0);
+			for (const w of windows) expect(w.special).toBe(w.codes.length);
 		});
 	});
 

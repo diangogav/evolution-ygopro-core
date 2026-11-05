@@ -1793,7 +1793,11 @@ int32_t field::process_quick_effect(int16_t step, int32_t skip_freechain, uint8_
 				}
 			}
 		}
-		if(core.current_chain.size() || (core.hint_timing[0] & TIMING_ATTACK) || (core.hint_timing[1] & TIMING_ATTACK))
+		// Goat Format (DUEL_GOAT_2005, basics #19): responding to the end-of-turn
+		// discard is a regular play, so every card offered in the window after
+		// the discard counts as fitting the timing and clients prompt by default.
+		int32_t goat_discard_window = (core.duel_options & DUEL_GOAT_2005) && core.hand_adjusted && infos.phase == PHASE_END;
+		if(core.current_chain.size() || (core.hint_timing[0] & TIMING_ATTACK) || (core.hint_timing[1] & TIMING_ATTACK) || goat_discard_window)
 			core.spe_effect[priority] = (int32_t)core.select_chains.size();
 		add_process(PROCESSOR_SELECT_CHAIN, 0, 0, 0, priority, core.spe_effect[priority]);
 		return FALSE;
