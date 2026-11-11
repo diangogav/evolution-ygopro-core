@@ -26,6 +26,9 @@ EDISON_SHA_OUT="${EDISON_SHA_OUT:-}"
 EXPECTED_SHA="0d7a2204341ce884271ba3978f6daa6e8fc791125e91dac6f117ad952736ac9f"
 EMSDK_IMAGE="emscripten/emsdk:3.1.7"   # ABI-compatible with koishipro-core.js 1.5.2 JS glue
 LUA_VERSION="5.4.8"
+LUA_SHA256="4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae"
+# Unmodified copy of the upstream tarball, used when lua.org is unreachable.
+LUA_MIRROR="https://github.com/diangogav/evolution-ygopro-core/releases/download/deps-lua-${LUA_VERSION}/lua-${LUA_VERSION}.tar.gz"
 
 # Resolve this script's own absolute path before changing directory, so the
 # EDISON_REPIN re-pin step below can find it regardless of the invoking cwd.
@@ -34,9 +37,26 @@ SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 # Resolve to the repo root (this script lives in tools/).
 cd "$(dirname "$0")/.."
 
-# 1. Lua sources (the core links against Lua 5.4.x).
+# 1. Lua sources (the core links against Lua 5.4.x). Try lua.org first, then
+#    the mirror; either download must match LUA_SHA256 before it is extracted.
 if [ ! -d lua ]; then
-  wget -qO - "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" | tar zxf -
+  LUA_TGZ="$(mktemp)"
+  LUA_OK=""
+  for url in "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" "$LUA_MIRROR"; do
+    if curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --max-time 120 -o "$LUA_TGZ" "$url" \
+      && echo "${LUA_SHA256}  ${LUA_TGZ}" | sha256sum -c --status; then
+      echo "lua:      $url"
+      LUA_OK=1
+      break
+    fi
+    echo "lua:      $url failed or did not match LUA_SHA256" >&2
+  done
+  if [ -z "$LUA_OK" ]; then
+    echo "Could not fetch lua-${LUA_VERSION}.tar.gz with sha256 ${LUA_SHA256}" >&2
+    exit 1
+  fi
+  tar zxf "$LUA_TGZ"
+  rm -f "$LUA_TGZ"
   mv "lua-${LUA_VERSION}" lua
   cp premake/lua.lua lua/premake5.lua
 fi
