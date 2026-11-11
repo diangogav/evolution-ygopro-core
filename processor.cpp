@@ -984,10 +984,19 @@ int32_t field::check_event_c(effect* peffect, uint8_t playerid, int32_t neglect_
 }
 int32_t field::check_hint_timing(effect* peffect) {
 	int32_t p = peffect->get_handler_player();
+	uint32_t timing[2] = { core.hint_timing[0], core.hint_timing[1] };
+	// Goat Format (DUEL_GOAT_2005, basics #10A): ATK/DEF modifiers are played
+	// during damage calculation, and their scripts hint TIMING_DAMAGE_STEP, so
+	// that hint also fits the damage-calculation timing.
+	if(core.duel_options & DUEL_GOAT_2005) {
+		for(auto& t : timing)
+			if(t & TIMING_DAMAGE_CAL)
+				t |= TIMING_DAMAGE_STEP;
+	}
 	if(p == 0)
-		return (peffect->hint_timing[0] & core.hint_timing[0]) || (peffect->hint_timing[1] & core.hint_timing[1]);
+		return (peffect->hint_timing[0] & timing[0]) || (peffect->hint_timing[1] & timing[1]);
 	else
-		return (peffect->hint_timing[0] & core.hint_timing[1]) || (peffect->hint_timing[1] & core.hint_timing[0]);
+		return (peffect->hint_timing[0] & timing[1]) || (peffect->hint_timing[1] & timing[0]);
 }
 // core.spe_effect[p]: # of optional trigger effects, activate/quick effect with hints
 int32_t field::process_phase_event(int16_t step, int32_t phase) {

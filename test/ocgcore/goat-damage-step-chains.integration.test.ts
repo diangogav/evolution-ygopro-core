@@ -57,6 +57,8 @@ const KOJIKOCY = 1184620; // 1500/1200
 interface Window {
 	player: number;
 	codes: number[];
+	/** Cards the core flags as fitting this timing (clients prompt by default only when > 0). */
+	special: number;
 }
 
 /** One entry per event inside the Damage Step, in order. */
@@ -130,7 +132,7 @@ async function runScenario(opts: { rrCopies: 1 | 2; activateFirstRr: boolean; ex
 			}
 			if (targetMessage instanceof YGOProMsgDamageStepEnd) break;
 			const sc = targetMessage as YGOProMsgSelectChain;
-			trace.push({ window: { player: sc.player, codes: sc.chains.map((c) => c.code) } });
+			trace.push({ window: { player: sc.player, codes: sc.chains.map((c) => c.code), special: sc.specialCount } });
 			const rr = sc.chains.find((c) => c.code === RUSH_RECKLESSLY);
 			if (opts.activateFirstRr && activated === 0 && rr) {
 				activated++;
@@ -147,14 +149,19 @@ async function runScenario(opts: { rrCopies: 1 | 2; activateFirstRr: boolean; ex
 	}
 }
 
-/** P0 windows before MSG_BATTLE, as lists of offered codes. */
-function p0WindowsBeforeBattle(trace: Trace): number[][] {
-	const out: number[][] = [];
+/** P0 windows before MSG_BATTLE. */
+function p0WindowEntriesBeforeBattle(trace: Trace): Window[] {
+	const out: Window[] = [];
 	for (const e of trace) {
 		if ("battle" in e) break;
-		if ("window" in e && e.window.player === 0) out.push(e.window.codes);
+		if ("window" in e && e.window.player === 0) out.push(e.window);
 	}
 	return out;
+}
+
+/** P0 windows before MSG_BATTLE, as lists of offered codes. */
+function p0WindowsBeforeBattle(trace: Trace): number[][] {
+	return p0WindowEntriesBeforeBattle(trace).map((w) => w.codes);
 }
 
 describe("Goat rule #10A — ATK/DEF modifiers during damage calculation (fork, differential)", () => {
@@ -170,6 +177,16 @@ describe("Goat rule #10A — ATK/DEF modifiers during damage calculation (fork, 
 		const windows = p0WindowsBeforeBattle(await runScenario({ rrCopies: 1, activateFirstRr: false, extraFlags: DUEL_GOAT_2005 }));
 		expect(windows).toHaveLength(3);
 		expect(windows[2]).toContain(RUSH_RECKLESSLY);
+	});
+
+	it("with DUEL_GOAT_2005: an ATK modifier hinted for the Damage Step counts as fitting the damage-calculation timing, so clients prompt by default", async () => {
+		// Rush Recklessly declares TIMING_DAMAGE_STEP; the damage-calculation
+		// window carries TIMING_DAMAGE_CAL. Without the match the core reports
+		// special 0 and clients auto-pass unless the player forces every prompt.
+		const windows = p0WindowEntriesBeforeBattle(await runScenario({ rrCopies: 1, activateFirstRr: false, extraFlags: DUEL_GOAT_2005 }));
+		expect(windows).toHaveLength(3);
+		expect(windows[2].codes).toEqual([RUSH_RECKLESSLY]);
+		expect(windows[2].special).toBe(1);
 	});
 });
 
