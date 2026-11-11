@@ -27,7 +27,9 @@ EXPECTED_SHA="0d7a2204341ce884271ba3978f6daa6e8fc791125e91dac6f117ad952736ac9f"
 EMSDK_IMAGE="emscripten/emsdk:3.1.7"   # ABI-compatible with koishipro-core.js 1.5.2 JS glue
 LUA_VERSION="5.4.8"
 LUA_SHA256="4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae"
-# Unmodified copy of the upstream tarball, used when lua.org is unreachable.
+PREMAKE_URL="https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz"
+PREMAKE_SHA256="63edd3e7461eebdd45b500a3c7e8ad4e7a67d68f230010f9a97cbb71b4ec59c8"
+# Unmodified copy of the upstream Lua tarball, used when lua.org is unreachable.
 LUA_MIRROR="https://github.com/diangogav/evolution-ygopro-core/releases/download/deps-lua-${LUA_VERSION}/lua-${LUA_VERSION}.tar.gz"
 
 # Resolve this script's own absolute path before changing directory, so the
@@ -66,14 +68,17 @@ ln -sf premake/dll.lua .
 #    than both the emsdk image and debian:12), so run it in ubuntu:24.04
 #    (glibc 2.39). This step only emits makefiles — it does not affect the
 #    final WASM bytes, which come solely from emsdk:3.1.7 + the source.
-docker run --rm -v "$PWD":/src -w /src ubuntu:24.04 bash -c '
-  set -e
-  apt-get update -qq && apt-get install -y -qq wget ca-certificates >/dev/null
-  wget -qO /tmp/premake.tar.gz https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz
-  tar xzf /tmp/premake.tar.gz -C /usr/local/bin premake5
-  chmod +x /usr/local/bin/premake5
-  premake5 gmake --file=dll.lua --os=emscripten
-'
+#    The binary is fetched on the host and mounted, so the container needs no
+#    package installs or network access.
+PREMAKE_DIR="$(mktemp -d)"
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 --max-time 120 -o "$PREMAKE_DIR/premake.tar.gz" "$PREMAKE_URL"
+echo "${PREMAKE_SHA256}  ${PREMAKE_DIR}/premake.tar.gz" | sha256sum -c --status \
+  || { echo "premake tarball does not match PREMAKE_SHA256 ${PREMAKE_SHA256}" >&2; exit 1; }
+tar xzf "$PREMAKE_DIR/premake.tar.gz" -C "$PREMAKE_DIR" premake5
+chmod +x "$PREMAKE_DIR/premake5"
+docker run --rm -v "$PWD":/src -v "$PREMAKE_DIR":/opt/premake:ro -w /src ubuntu:24.04 \
+  /opt/premake/premake5 gmake --file=dll.lua --os=emscripten
+rm -rf "$PREMAKE_DIR"
 
 # 3. Compile the WASM inside the pinned emsdk image.
 docker run --rm -v "$PWD":/src -w /src/build "$EMSDK_IMAGE" \
