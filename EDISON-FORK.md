@@ -52,6 +52,9 @@ that does not pass it is untouched:
   scripts mark with `EFFECT_FLAG_DAMAGE_STEP` (ATK/DEF modifiers such as Rush
   Recklessly) stay activatable. Modern rules only admit effects carrying
   `EFFECT_FLAG_DAMAGE_CAL` there (`effect::is_damage_cal_available`).
+  Those scripts hint `TIMING_DAMAGE_STEP`, so `field::check_hint_timing` also
+  treats that hint as fitting the damage-calculation timing: the window counts
+  them in `spe_count` and clients prompt by default instead of auto-passing.
 - **#10B** (one chain per Damage Step timing) needs no gate: every Damage Step
   point event enters with `skip_new`, so the chain-end re-entry already skips
   the free-chain window in the same timing. `goat-damage-step-chains` pins
